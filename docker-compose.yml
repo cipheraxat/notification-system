@@ -1,0 +1,156 @@
+# =====================================================
+# DOCKER COMPOSE - Local Development Infrastructure
+# =====================================================
+#
+# This file defines all the services our application needs:
+# - PostgreSQL (database)
+# - Redis (caching & rate limiting)
+# - Kafka + Zookeeper (message queue)
+#
+# To start all services: docker-compose up -d
+# To stop all services:  docker-compose down
+# To see logs:           docker-compose logs -f
+#
+
+version: '3.8'
+
+services:
+  
+  # ==================== PostgreSQL Database ====================
+  # 
+  # PostgreSQL is our main database where we store:
+  # - Users
+  # - Notifications
+  # - Templates
+  # - User Preferences
+  #
+  postgres:
+    image: postgres:15                    # Official PostgreSQL image, version 15
+    container_name: notification-postgres # Name for easy identification
+    environment:
+      POSTGRES_DB: notification_db        # Database name (created automatically)
+      POSTGRES_USER: postgres             # Database username
+      POSTGRES_PASSWORD: postgres         # Database password (use secrets in production!)
+    ports:
+      - "5432:5432"                        # Host:Container port mapping
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Persist data between restarts
+    healthcheck:
+      # Check if database is ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  # ==================== Redis Cache ====================
+  #
+  # Redis is an in-memory data store. We use it for:
+  # 1. Rate Limiting - Track how many notifications per user
+  # 2. Caching - Store frequently accessed data (templates, preferences)
+  #
+  # Why Redis?
+  # - Super fast (data is in memory, not on disk)
+  # - Simple key-value operations
+  # - Built-in expiration (TTL) for rate limit windows
+  #
+  redis:
+    image: redis:7-alpine                 # Alpine = smaller image size
+    container_name: notification-redis
+    ports:
+      - "6379:6379"                        # Default Redis port
+    command: redis-server --appendonly yes # Enable persistence
+    volumes:
+      - redis_data:/data                   # Persist data between restarts
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  # ==================== Zookeeper (Required for Kafka) ====================
+  #
+  # Zookeeper is a coordination service that Kafka needs to:
+  # - Track which brokers are alive
+  # - Manage topic configurations
+  # - Handle leader election
+  #
+  # You don't interact with Zookeeper directly, Kafka does.
+  #
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: notification-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181         # Port for Kafka to connect
+      ZOOKEEPER_TICK_TIME: 2000           # Heartbeat interval in ms
+    ports:
+      - "2181:2181"
+  
+  # ==================== Kafka Message Queue ====================
+  #
+  # Kafka is our message queue. We use it to:
+  # 1. Decouple API from notification sending (async processing)
+  # 2. Handle traffic spikes (queue absorbs load)
+  # 3. Enable retries for failed notifications
+  #
+  # How it works:
+  # - Producer: Our API sends notification messages to Kafka
+  # - Consumer: Worker service reads messages and sends notifications
+  # - Topic: Like a "folder" for related messages (e.g., "notifications")
+  #
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: notification-kafka
+    depends_on:
+      - zookeeper                          # Kafka needs Zookeeper to be running
+    ports:
+      - "9092:9092"                         # Port for our application to connect
+    environment:
+      KAFKA_BROKER_ID: 1                    # Unique ID for this Kafka broker
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181  # How to find Zookeeper
+      
+      # Listeners: How Kafka advertises itself to clients
+      # PLAINTEXT = no encryption (fine for local development)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # Topic settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1    # Only 1 broker, so replication = 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      
+      # Auto-create topics when producer sends to non-existent topic
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  
+  # ==================== Kafka UI (Optional but helpful!) ====================
+  #
+  # A web interface to view Kafka topics, messages, and consumers.
+  # Access at: http://localhost:8090
+  #
+  # Very useful for debugging!
+  #
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: notification-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"                        # Access UI at localhost:8090
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+# ==================== Volumes ====================
+#
+# Volumes persist data outside the container.
+# Without volumes, data is lost when containers restart.
+#
+volumes:
+  postgres_data:    # PostgreSQL data files
+  redis_data:       # Redis persistence files

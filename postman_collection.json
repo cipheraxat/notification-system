@@ -1,0 +1,642 @@
+{
+	"info": {
+		"_postman_id": "notification-system-api",
+		"name": "Notification System API",
+		"description": "Complete API collection for the Notification System - A scalable, multi-channel notification service built with Spring Boot.\n\n## Features\n- Multi-channel notifications (EMAIL, SMS, PUSH, IN_APP)\n- Template-based messaging\n- Rate limiting\n- Async processing with Kafka\n- Priority-based delivery\n\n## Base URL\n`http://localhost:8080`\n\n## Authentication\nCurrently no authentication required (development mode)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "userId1",
+			"value": "550e8400-e29b-41d4-a716-446655440001",
+			"type": "string"
+		},
+		{
+			"key": "userId2",
+			"value": "550e8400-e29b-41d4-a716-446655440002",
+			"type": "string"
+		},
+		{
+			"key": "templateId1",
+			"value": "660e8400-e29b-41d4-a716-446655440001",
+			"type": "string"
+		},
+		{
+			"key": "notificationId",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Health Check - Basic",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "health"]
+						},
+						"description": "Basic health check endpoint to verify the service is running."
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check - Actuator",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["actuator", "health"]
+						},
+						"description": "Detailed health check including database, Redis, and Kafka status."
+					},
+					"response": []
+				},
+				{
+					"name": "Application Info",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/info",
+							"host": ["{{baseUrl}}"],
+							"path": ["actuator", "info"]
+						},
+						"description": "Application information from actuator."
+					},
+					"response": []
+				}
+			],
+			"description": "Health check and monitoring endpoints"
+		},
+		{
+			"name": "Notifications",
+			"item": [
+				{
+					"name": "Send Notification - Email with Template",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.success && jsonData.data && jsonData.data.id) {",
+									"    pm.collectionVariables.set('notificationId', jsonData.data.id);",
+									"    console.log('Saved notification ID:', jsonData.data.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId1}}\",\n    \"channel\": \"EMAIL\",\n    \"templateName\": \"welcome-email\",\n    \"templateParams\": {\n        \"userName\": \"John Doe\"\n    },\n    \"priority\": \"HIGH\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications"]
+						},
+						"description": "Send a notification using a pre-defined template.\n\n**Channels:** EMAIL, SMS, PUSH, IN_APP\n\n**Priorities:** LOW, MEDIUM, HIGH, CRITICAL"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Notification - Email with Custom Content",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.success && jsonData.data && jsonData.data.id) {",
+									"    pm.collectionVariables.set('notificationId', jsonData.data.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId1}}\",\n    \"channel\": \"EMAIL\",\n    \"subject\": \"Custom Email Subject\",\n    \"content\": \"This is a custom email notification without using a template. You can include any content here.\",\n    \"priority\": \"MEDIUM\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications"]
+						},
+						"description": "Send a notification with custom subject and content (no template)."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Notification - SMS OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId1}}\",\n    \"channel\": \"SMS\",\n    \"templateName\": \"otp-sms\",\n    \"templateParams\": {\n        \"otpCode\": \"123456\"\n    },\n    \"priority\": \"CRITICAL\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications"]
+						},
+						"description": "Send an OTP verification code via SMS. Uses CRITICAL priority for immediate delivery."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Notification - Push",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId2}}\",\n    \"channel\": \"PUSH\",\n    \"templateName\": \"order-shipped\",\n    \"templateParams\": {\n        \"orderId\": \"ORD-12345\",\n        \"trackingUrl\": \"https://track.example.com/ORD-12345\"\n    },\n    \"priority\": \"HIGH\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications"]
+						},
+						"description": "Send a push notification to user's mobile device."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Notification - In-App",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId1}}\",\n    \"channel\": \"IN_APP\",\n    \"subject\": \"New Feature Available!\",\n    \"content\": \"Check out our new dashboard feature with enhanced analytics.\",\n    \"priority\": \"LOW\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications"]
+						},
+						"description": "Send an in-app notification that appears in the user's notification center."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk Notifications",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userIds\": [\n        \"{{userId1}}\",\n        \"{{userId2}}\"\n    ],\n    \"channel\": \"EMAIL\",\n    \"templateName\": \"order-confirmation\",\n    \"templateParams\": {\n        \"orderId\": \"ORD-99999\",\n        \"orderTotal\": \"$149.99\",\n        \"userName\": \"Valued Customer\"\n    },\n    \"priority\": \"HIGH\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications/bulk",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications", "bulk"]
+						},
+						"description": "Send the same notification to multiple users at once. Useful for announcements, promotions, etc."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Notification by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications", "{{notificationId}}"]
+						},
+						"description": "Retrieve a specific notification by its ID. The notificationId variable is automatically set when you send a notification."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications/user/{{userId1}}?page=0&size=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications", "user", "{{userId1}}"],
+							"query": [
+								{
+									"key": "page",
+									"value": "0",
+									"description": "Page number (0-indexed)"
+								},
+								{
+									"key": "size",
+									"value": "10",
+									"description": "Number of items per page"
+								}
+							]
+						},
+						"description": "Get all notifications for a specific user with pagination."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Notifications - Filtered by Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/notifications/user/{{userId1}}?page=0&size=10&status=PENDING",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "notifications", "user", "{{userId1}}"],
+							"query": [
+								{
+									"key": "page",
+									"value": "0"
+								},
+								{
+									"key": "size",
+									"value": "10"
+								},
+								{
+									"key": "status",
+									"value": "PENDING",
+									"description": "Filter by status: PENDING, SENT, DELIVERED, FAILED, READ"
+								}
+							]
+						},
+						"description": "Get user notifications filtered by status.\n\n**Available statuses:**\n- PENDING\n- SENT\n- DELIVERED\n- FAILED\n- READ"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for sending and managing notifications"
+		},
+		{
+			"name": "Templates",
+			"item": [
+				{
+					"name": "Get All Templates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates"]
+						},
+						"description": "Retrieve all notification templates."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Template by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates/{{templateId1}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates", "{{templateId1}}"]
+						},
+						"description": "Get a specific template by its UUID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Template by Name",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates/name/welcome-email",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates", "name", "welcome-email"]
+						},
+						"description": "Get a template by its unique name."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Template - Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"password-reset\",\n    \"channel\": \"EMAIL\",\n    \"subjectTemplate\": \"Password Reset Request - {{appName}}\",\n    \"bodyTemplate\": \"Hi {{userName}},\\n\\nWe received a request to reset your password.\\n\\nClick the link below to reset it:\\n{{resetLink}}\\n\\nThis link will expire in {{expiryTime}}.\\n\\nIf you didn't request this, please ignore this email or contact support.\\n\\nBest regards,\\nThe {{appName}} Team\",\n    \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates"]
+						},
+						"description": "Create a new email notification template.\n\n**Template Variables:** Use `{{variableName}}` syntax for dynamic content."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Template - SMS",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"delivery-eta-sms\",\n    \"channel\": \"SMS\",\n    \"bodyTemplate\": \"Your order {{orderId}} will arrive today between {{timeSlot}}. Track: {{trackingUrl}}\",\n    \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates"]
+						},
+						"description": "Create a new SMS notification template. SMS templates don't require a subject."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Template - Push",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"flash-sale-push\",\n    \"channel\": \"PUSH\",\n    \"subjectTemplate\": \"🔥 Flash Sale Alert!\",\n    \"bodyTemplate\": \"{{discount}}% OFF on {{category}}! Ends in {{hours}} hours. Shop now!\",\n    \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates"]
+						},
+						"description": "Create a new push notification template. Supports emojis in subject."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Template - In-App",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"account-activity-alert\",\n    \"channel\": \"IN_APP\",\n    \"subjectTemplate\": \"Security Alert\",\n    \"bodyTemplate\": \"New login detected from {{deviceType}} in {{location}} at {{loginTime}}. If this wasn't you, please secure your account.\",\n    \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates"]
+						},
+						"description": "Create a new in-app notification template."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Template",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"welcome-email\",\n    \"channel\": \"EMAIL\",\n    \"subjectTemplate\": \"Welcome to Our Platform, {{userName}}! 🎉\",\n    \"bodyTemplate\": \"Hi {{userName}},\\n\\nThank you for joining our platform! We're thrilled to have you on board.\\n\\nHere's what you can do next:\\n1. Complete your profile\\n2. Explore our features\\n3. Connect with others\\n\\nNeed help? Reply to this email or visit our Help Center.\\n\\nBest regards,\\nThe Team\",\n    \"active\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates/{{templateId1}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates", "{{templateId1}}"]
+						},
+						"description": "Update an existing notification template."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Template",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/templates/660e8400-e29b-41d4-a716-446655440004",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "templates", "660e8400-e29b-41d4-a716-446655440004"]
+						},
+						"description": "Delete (deactivate) a notification template. This is a soft delete - the template is marked as inactive."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for managing notification templates"
+		},
+		{
+			"name": "OpenAPI Documentation",
+			"item": [
+				{
+					"name": "OpenAPI Spec - JSON",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/v3/api-docs",
+							"host": ["{{baseUrl}}"],
+							"path": ["v3", "api-docs"]
+						},
+						"description": "Get the OpenAPI 3.0 specification in JSON format."
+					},
+					"response": []
+				},
+				{
+					"name": "OpenAPI Spec - YAML",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/x-yaml"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/v3/api-docs.yaml",
+							"host": ["{{baseUrl}}"],
+							"path": ["v3", "api-docs.yaml"]
+						},
+						"description": "Get the OpenAPI 3.0 specification in YAML format."
+					},
+					"response": []
+				}
+			],
+			"description": "OpenAPI/Swagger documentation endpoints"
+		}
+	]
+}

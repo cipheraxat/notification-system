@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    =====================================================
+    POM.XML - Maven Project Configuration
+    =====================================================
+    
+    This file tells Maven:
+    1. What dependencies (libraries) our project needs
+    2. How to build the project
+    3. What version of Java to use
+    
+    Think of it as a "shopping list" for your project's libraries.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <!-- Maven model version (always 4.0.0) -->
+    <modelVersion>4.0.0</modelVersion>
+    
+    <!--
+        Parent POM: Spring Boot Starter Parent
+        This gives us sensible defaults for Spring Boot applications.
+        It pre-configures many things so we don't have to.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.1</version>
+        <relativePath/>
+    </parent>
+    
+    <!--
+        Project Coordinates: Unique identifier for our project
+        - groupId: Usually your company/organization domain reversed
+        - artifactId: The name of this specific project
+        - version: Current version of the project
+    -->
+    <groupId>com.notification</groupId>
+    <artifactId>notification-system</artifactId>
+    <version>1.0.0</version>
+    <name>notification-system</name>
+    <description>A scalable notification system supporting multiple channels</description>
+    
+    <!--
+        Properties: Variables we can reuse throughout this file
+        Using properties makes it easy to update versions in one place
+    -->
+    <properties>
+        <!-- Java version: We're using Java 21 (LTS - Long Term Support) -->
+        <java.version>21</java.version>
+        
+        <!-- Library versions -->
+        <springdoc.version>2.3.0</springdoc.version>
+        <mapstruct.version>1.5.5.Final</mapstruct.version>
+    </properties>
+    
+    <!--
+        Dependencies: The libraries our project needs
+        Each dependency is like adding a tool to your toolbox
+    -->
+    <dependencies>
+        
+        <!-- ==================== CORE SPRING BOOT ==================== -->
+        
+        <!--
+            Spring Boot Starter Web
+            - Provides everything needed for building REST APIs
+            - Includes: Spring MVC, Jackson (JSON), Tomcat server
+            - This is what lets us create @RestController endpoints
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        
+        <!--
+            Spring Boot Starter Validation
+            - Provides @Valid, @NotNull, @NotBlank, etc.
+            - Helps us validate incoming request data
+            - Example: @NotBlank(message = "User ID is required")
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        
+        <!-- ==================== DATABASE ==================== -->
+        
+        <!--
+            Spring Boot Starter Data JPA
+            - JPA = Java Persistence API (for database operations)
+            - Lets us use @Entity classes that map to database tables
+            - Provides Repository interfaces for CRUD operations
+            - No need to write SQL for basic operations!
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        
+        <!--
+            PostgreSQL Driver
+            - Allows Java to connect to PostgreSQL database
+            - "runtime" scope means it's only needed when running, not compiling
+        -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        
+        <!--
+            Flyway Database Migration
+            - Manages database schema changes over time
+            - Runs SQL scripts in order (V1__, V2__, etc.)
+            - Keeps track of which migrations have been applied
+            - Great for team collaboration and deployments
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>10.10.0</version>
+        </dependency>
+        
+        <!-- ==================== CACHING & RATE LIMITING ==================== -->
+        
+        <!--
+            Spring Boot Starter Data Redis
+            - Redis is an in-memory data store (super fast!)
+            - We use it for:
+              1. Rate limiting (tracking how many requests per user)
+              2. Caching (storing frequently accessed data)
+            - Operations take microseconds instead of milliseconds
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        
+        <!-- ==================== MESSAGE QUEUE ==================== -->
+        
+        <!--
+            Spring Kafka
+            - Kafka is a distributed message queue
+            - We use it to:
+              1. Decouple notification sending from the API
+              2. Handle traffic spikes (queue absorbs load)
+              3. Retry failed notifications
+            - Producer sends messages, Consumer receives them
+        -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+        
+        <!-- ==================== API DOCUMENTATION ==================== -->
+        
+        <!--
+            SpringDoc OpenAPI (Swagger)
+            - Automatically generates API documentation
+            - Provides interactive UI to test endpoints
+            - Access at: http://localhost:8080/swagger-ui.html
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+        
+        <!-- ==================== MONITORING ==================== -->
+        
+        <!--
+            Spring Boot Actuator
+            - Provides production-ready features:
+              - Health checks (/actuator/health)
+              - Metrics (/actuator/metrics)
+              - Info about the app (/actuator/info)
+            - Essential for monitoring in production
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        
+        <!-- ==================== DEVELOPER PRODUCTIVITY ==================== -->
+        
+        <!--
+            Lombok
+            - Reduces boilerplate code using annotations
+            - @Data = generates getters, setters, toString, equals, hashCode
+            - @Builder = generates builder pattern
+            - @Slf4j = generates logger
+            - Code is generated at compile time, not in your source files
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        
+        <!--
+            MapStruct
+            - Generates code to convert between objects (e.g., Entity to DTO)
+            - Much faster than doing it manually or using reflection
+            - Example: NotificationMapper converts Notification to NotificationResponse
+        -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${mapstruct.version}</version>
+        </dependency>
+        
+        <!-- ==================== TESTING ==================== -->
+        
+        <!--
+            Spring Boot Starter Test
+            - Includes JUnit 5, Mockito, AssertJ
+            - Everything you need for unit and integration tests
+            - "test" scope means it's only available during testing
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        
+        <!--
+            Spring Kafka Test
+            - Provides embedded Kafka for testing
+            - No need to run real Kafka during tests
+        -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        
+        <!--
+            H2 Database (In-Memory)
+            - Lightweight database for testing
+            - No setup required, runs in memory
+            - Perfect for unit tests
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        
+    </dependencies>
+    
+    <!--
+        Build Configuration
+        Tells Maven how to compile and package our application
+    -->
+    <build>
+        <plugins>
+            <!--
+                Spring Boot Maven Plugin
+                - Creates executable JAR file
+                - Allows running with: mvn spring-boot:run
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Exclude Lombok from final JAR (not needed at runtime) -->
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            
+            <!--
+                Maven Compiler Plugin
+                - Configures Java compilation
+                - Sets up annotation processors (Lombok, MapStruct)
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <annotationProcessorPaths>
+                        <!-- Lombok must come before MapStruct -->
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                        <!-- This makes MapStruct work with Lombok -->
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>0.2.0</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+    
+</project>

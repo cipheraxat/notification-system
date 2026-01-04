@@ -1,0 +1,168 @@
+package com.notification.dto.request;
+
+// =====================================================
+// SendNotificationRequest.java - API Request DTO
+// =====================================================
+//
+// DTO = Data Transfer Object
+// 
+// DTOs are simple classes that carry data between layers.
+// They're different from Entities:
+// 
+// Entity (Notification.java):
+// - Maps to database table
+// - Has JPA annotations
+// - Has relationships to other entities
+// - Internal representation
+//
+// DTO (SendNotificationRequest.java):
+// - Represents API request/response
+// - Has validation annotations
+// - Flat structure (no relationships)
+// - External representation (what API consumers see)
+//
+// Why separate DTOs from Entities?
+// 1. Security: Don't expose internal fields (like passwords)
+// 2. Flexibility: API structure can differ from DB structure
+// 3. Validation: Different validation for different contexts
+// 4. Versioning: Can change DB without breaking API
+//
+
+import com.notification.model.enums.ChannelType;
+import com.notification.model.enums.Priority;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Request DTO for sending a notification.
+ * 
+ * This is what the API consumer sends to our POST /notifications endpoint.
+ * 
+ * Example JSON request:
+ * {
+ *   "userId": "550e8400-e29b-41d4-a716-446655440001",
+ *   "channel": "EMAIL",
+ *   "priority": "HIGH",
+ *   "templateName": "welcome-email",
+ *   "templateVariables": {
+ *     "userName": "John",
+ *     "activationLink": "https://example.com/activate/abc123"
+ *   }
+ * }
+ * 
+ * OR with custom content (no template):
+ * {
+ *   "userId": "550e8400-e29b-41d4-a716-446655440001",
+ *   "channel": "SMS",
+ *   "subject": null,
+ *   "content": "Your verification code is 123456"
+ * }
+ */
+@Data                  // Lombok: getters, setters, toString, etc.
+@Builder               // Lombok: builder pattern
+@NoArgsConstructor     // Lombok: no-arg constructor (needed for JSON)
+@AllArgsConstructor    // Lombok: all-args constructor
+public class SendNotificationRequest {
+
+    // ==================== Required Fields ====================
+    
+    /**
+     * The ID of the user to send the notification to.
+     * 
+     * @NotNull - This field is required (cannot be null)
+     * 
+     * Validation happens automatically when we use @Valid
+     * in the controller. If userId is null, Spring will
+     * return a 400 Bad Request with an error message.
+     */
+    @NotNull(message = "User ID is required")
+    private UUID userId;
+    
+    /**
+     * Which channel to use for delivery.
+     * 
+     * Values: EMAIL, SMS, PUSH, IN_APP
+     */
+    @NotNull(message = "Channel is required")
+    private ChannelType channel;
+    
+    // ==================== Optional Fields ====================
+    
+    /**
+     * Priority level for this notification.
+     * 
+     * If not specified, defaults to MEDIUM.
+     * Values: HIGH, MEDIUM, LOW
+     */
+    @Builder.Default
+    private Priority priority = Priority.MEDIUM;
+    
+    // ==================== Template-based Content ====================
+    // Use these when sending with a template
+    
+    /**
+     * Name of the template to use.
+     * 
+     * If specified, we'll look up the template and use
+     * templateVariables to fill in the placeholders.
+     * 
+     * Example: "welcome-email", "order-confirmation"
+     */
+    private String templateName;
+    
+    /**
+     * Variables to substitute in the template.
+     * 
+     * Map of placeholder name → value.
+     * Example: {"userName": "John", "orderId": "12345"}
+     */
+    @Builder.Default
+    private Map<String, String> templateVariables = new HashMap<>();
+    
+    // ==================== Direct Content ====================
+    // Use these when sending without a template
+    
+    /**
+     * Subject line (for email and push).
+     * 
+     * Required for EMAIL, optional for others.
+     */
+    private String subject;
+    
+    /**
+     * Message content.
+     * 
+     * Required if not using a template.
+     */
+    private String content;
+    
+    // ==================== Validation Helper ====================
+    
+    /**
+     * Check if this request is using a template.
+     * 
+     * @return true if templateName is specified
+     */
+    public boolean isTemplateRequest() {
+        return templateName != null && !templateName.isBlank();
+    }
+    
+    /**
+     * Validate that the request has content.
+     * 
+     * Either templateName OR content must be provided.
+     * 
+     * @return true if the request has valid content
+     */
+    public boolean hasValidContent() {
+        return isTemplateRequest() || (content != null && !content.isBlank());
+    }
+}
