@@ -51,9 +51,9 @@
 ┌─────────────┐     ┌─────────────────────────────────────────────┐     ┌─────────────┐
 │   Client    │────▶│         NOTIFICATION SERVICE                │────▶│  PostgreSQL │
 │  (REST API) │     │                                             │     │  (Storage)  │
-└─────────────┘     │  ┌───────────┐   ┌───────────┐   ┌───────┐ │     └─────────────┘
-                    │  │Controller │──▶│  Service  │──▶│  Repo │ │
-                    │  └───────────┘   └─────┬─────┘   └───────┘ │     ┌─────────────┐
+└─────────────┘     │  ┌───────────┐   ┌───────────┐   ┌───────┐  │     └─────────────┘
+                    │  │Controller │──▶│  Service  │──▶│  Repo │  │
+                    │  └───────────┘   └─────┬─────┘   └───────┘  │     ┌─────────────┐
                     │                        │                    │────▶│    Redis    │
                     │                        ▼                    │     │(Rate Limit) │
                     │                  ┌───────────┐              │     └─────────────┘
@@ -66,18 +66,18 @@
                     ┌────────────────────────┼─────────────────────────────────┘
                     │                        ▼
                     │  ┌─────────────────────────────────────────────────────┐
-                    │  │              KAFKA CONSUMER (Worker)                 │
-                    │  │                                                      │
+                    │  │              KAFKA CONSUMER (Worker)                │
+                    │  │                                                     │
                     │  │   ┌──────────────────┐    ┌───────────────────────┐ │
-                    └──│──▶│ NotificationConsumer │──▶│  ChannelDispatcher  │ │
+                    └──│──▶│ NotificationConsumer │──▶│  ChannelDispatcher │ │
                        │   └──────────────────┘    └───────────┬───────────┘ │
                        │                                       │             │
                        │              ┌────────────────────────┼─────┐       │
                        │              ▼            ▼           ▼     ▼       │
-                       │         ┌───────┐   ┌───────┐   ┌───────┐ ┌──────┐ │
-                       │         │ Email │   │  SMS  │   │ Push  │ │In-App│ │
-                       │         │Handler│   │Handler│   │Handler│ │Handler│
-                       │         └───────┘   └───────┘   └───────┘ └──────┘ │
+                       │         ┌───────┐   ┌───────┐   ┌───────┐ ┌──────┐  │
+                       │         │ Email │   │  SMS  │   │ Push  │ │In-App│  │
+                       │         │Handler│   │Handler│   │Handler│ │Handler│ |
+                       │         └───────┘   └───────┘   └───────┘ └──────┘  │
                        └─────────────────────────────────────────────────────┘
 ```
 
@@ -155,11 +155,14 @@ if (newCount == 1) {
 | Can't handle traffic spikes | Queue absorbs spikes |
 | Single point of failure | Decoupled, fault-tolerant |
 
-**Key Design Decisions:**
-1. **Single Topic:** `notifications` - Simple, no complex routing
+**Key Design Decisions (Alex Xu's Pattern):**
+1. **Channel-Specific Topics:** `notifications.email`, `notifications.sms`, `notifications.push`, `notifications.in-app`
+   - Each channel scales independently
+   - Email issues don't affect push delivery
+   - Different partition counts per channel based on volume
 2. **Key = Notification ID:** Ensures ordering per notification
 3. **Manual Acknowledgment:** Only commit offset after successful processing
-4. **Concurrency = 3:** Multiple consumer threads for parallelism
+4. **Separate Consumer Groups:** Each channel has its own consumer group for independent offset tracking
 
 **Configuration (KafkaConfig.java):**
 ```java
@@ -258,7 +261,7 @@ return handler.send(notification);
 | **PostgreSQL** | ACID compliance, JSON support, reliability | Harder to scale horizontally |
 | **UUID primary keys** | Globally unique, can generate client-side | Larger than integers, slower indexes |
 | **Save-then-publish** | Notification survives Kafka failure | Possible duplicate sends |
-| **Single Kafka topic** | Simple, easy to manage | Less flexibility for priority queues |
+| **Channel-specific Kafka topics** | Independent scaling, channel isolation, follows Alex Xu's design | More topics to manage |
 | **Polling retry scheduler** | Simple, reliable | Less immediate than push-based |
 
 ---
@@ -560,22 +563,37 @@ This makes my consumer idempotent - processing the same message twice has no add
 
 ---
 
-**Q14: Why single topic instead of topic-per-channel?**
+**Q14: Why did you use channel-specific Kafka topics?**
 
 **Answer:**
-"I chose simplicity. A single `notifications` topic means:
+"I implemented **channel-specific topics** following Alex Xu's system design pattern:
 
-- Fewer topics to manage
-- Easier monitoring
-- Single consumer configuration
+- `notifications.email` - 3 partitions (high volume, can tolerate delay)
+- `notifications.sms` - 2 partitions (rate-limited by providers like Twilio)
+- `notifications.push` - 4 partitions (needs to be fast for UX)
+- `notifications.in-app` - 3 partitions (moderate volume)
 
-**When would I use multiple topics?**
-If I needed:
-- Different retention per channel (SMS logs shorter than email)
-- Different processing rates (priority queue - HIGH topic processed first)
-- Independent scaling (more SMS workers, fewer email workers)
+**Benefits of this approach:**
 
-For this project's scope, single topic is sufficient. It's a phase-2 optimization if needed."
+1. **Independent Scaling:** I can have 10 email consumers but only 2 SMS consumers based on volume
+2. **Fault Isolation:** If the email provider is down, push notifications still work
+3. **Different SLAs:** Push notifications can have higher processing priority
+4. **Better Monitoring:** Track lag and throughput per channel separately
+
+**Implementation:**
+```java
+// Route to correct topic based on channel
+private String getTopicForChannel(ChannelType channel) {
+    return switch (channel) {
+        case EMAIL -> emailTopic;
+        case SMS -> smsTopic;
+        case PUSH -> pushTopic;
+        case IN_APP -> inAppTopic;
+    };
+}
+```
+
+Each channel also has its own consumer group for independent offset tracking."
 
 ---
 

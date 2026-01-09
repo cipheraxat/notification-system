@@ -62,9 +62,19 @@ public class NotificationService {
     private final RateLimiterService rateLimiterService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     
-    // Kafka topic name from configuration
-    @Value("${notification.kafka.topic:notifications}")
-    private String notificationTopic;
+    // Channel-specific Kafka topics (Alex Xu's design pattern)
+    // Each channel has its own topic for independent scaling
+    @Value("${notification.kafka.topic.email:notifications.email}")
+    private String emailTopic;
+    
+    @Value("${notification.kafka.topic.sms:notifications.sms}")
+    private String smsTopic;
+    
+    @Value("${notification.kafka.topic.push:notifications.push}")
+    private String pushTopic;
+    
+    @Value("${notification.kafka.topic.in-app:notifications.in-app}")
+    private String inAppTopic;
     
     // ==================== Constructor ====================
     
@@ -350,8 +360,8 @@ public class NotificationService {
     /**
      * Send notification to Kafka for async processing.
      * 
-     * We serialize just the notification ID - the worker will
-     * fetch the full notification from the database.
+     * Routes to channel-specific topic based on notification channel.
+     * This follows Alex Xu's design for independent channel scaling.
      * 
      * Key = notification ID (for partitioning)
      * Value = notification ID (worker will fetch details)
@@ -360,11 +370,12 @@ public class NotificationService {
         try {
             String key = notification.getId().toString();
             String value = notification.getId().toString();
+            String topic = getTopicForChannel(notification.getChannel());
             
-            kafkaTemplate.send(notificationTopic, key, value);
+            kafkaTemplate.send(topic, key, value);
             
             log.debug("Sent notification {} to Kafka topic {}", 
-                notification.getId(), notificationTopic);
+                notification.getId(), topic);
                 
         } catch (Exception e) {
             log.error("Failed to send notification {} to Kafka: {}", 
@@ -372,5 +383,22 @@ public class NotificationService {
             // Don't fail the transaction - notification is saved in DB
             // A retry job can pick it up later
         }
+    }
+    
+    /**
+     * Get the Kafka topic for a specific channel.
+     * 
+     * Each channel has its own topic allowing:
+     * - Independent scaling (more email consumers, fewer SMS)
+     * - Channel isolation (email issues don't affect push)
+     * - Different processing priorities per channel
+     */
+    private String getTopicForChannel(ChannelType channel) {
+        return switch (channel) {
+            case EMAIL -> emailTopic;
+            case SMS -> smsTopic;
+            case PUSH -> pushTopic;
+            case IN_APP -> inAppTopic;
+        };
     }
 }

@@ -6,19 +6,24 @@ package com.notification.kafka;
 //
 // This is the WORKER that processes notifications asynchronously.
 //
+// Architecture (Alex Xu's Design):
+// - Each channel has its own Kafka topic for independent scaling
+// - Topics: notifications.email, notifications.sms, notifications.push, notifications.in-app
+// - This allows scaling email consumers independently from SMS consumers
+//
 // Flow:
-// 1. NotificationService saves notification to DB and sends ID to Kafka
+// 1. NotificationService saves notification to DB and sends ID to channel-specific Kafka topic
 // 2. Kafka stores the message in a partition
-// 3. This consumer picks up the message
+// 3. This consumer picks up the message from the appropriate topic
 // 4. We fetch the notification from DB
 // 5. We send it via the appropriate channel (email, SMS, etc.)
 // 6. We update the status in DB
 //
-// Why Kafka?
-// - Decouples sending from API response (fast API, slow sending)
-// - Handles backpressure (too many notifications at once)
-// - Provides durability (messages survive restarts)
-// - Enables horizontal scaling (add more consumers)
+// Why Channel-Specific Topics?
+// - Independent scaling (email may need 10 consumers, SMS only 2)
+// - Isolation (email issues don't affect push delivery)
+// - Different processing priorities
+// - Easier monitoring per channel
 //
 
 import com.notification.model.entity.Notification;
@@ -36,7 +41,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Kafka consumer for processing notifications.
+ * Kafka consumer for processing notifications from channel-specific topics.
+ * 
+ * Listens to all four channel topics:
+ * - notifications.email
+ * - notifications.sms
+ * - notifications.push
+ * - notifications.in-app
+ * 
+ * Each topic can be scaled independently by adjusting concurrency.
  * 
  * @Component makes this a Spring bean that gets auto-detected.
  */
@@ -55,41 +68,98 @@ public class NotificationConsumer {
         this.channelDispatcher = channelDispatcher;
     }
     
+    // ==================== Channel-Specific Consumers ====================
+    // 
+    // Each channel has its own listener for independent scaling.
+    // In production, you can adjust concurrency per channel based on volume.
+    //
+    
     /**
-     * Listen for notification messages from Kafka.
+     * Process EMAIL notifications.
      * 
-     * @KafkaListener tells Spring Kafka to:
-     * 1. Subscribe to the specified topic
-     * 2. Call this method for each message
-     * 3. Handle deserialization automatically
-     * 
-     * Parameters:
-     * - topics: The topic(s) to listen to
-     * - groupId: Consumer group ID (allows multiple instances to share work)
-     * - containerFactory: The listener container factory to use
-     * 
-     * ConsumerRecord contains:
-     * - key(): The message key (notification ID)
-     * - value(): The message value (also notification ID in our case)
-     * - partition(): Which partition the message came from
-     * - offset(): The message's offset in the partition
-     * 
-     * Acknowledgment allows manual commit of offsets.
-     * We only acknowledge after successful processing.
+     * Email is typically high volume but can tolerate some delay.
+     * Consider higher concurrency for production.
      */
     @KafkaListener(
-        topics = "${notification.kafka.topic:notifications}",
-        groupId = "${spring.kafka.consumer.group-id:notification-service}",
+        topics = "${notification.kafka.topic.email:notifications.email}",
+        groupId = "${spring.kafka.consumer.group-id:notification-service}-email",
         containerFactory = "kafkaListenerContainerFactory"
     )
-    public void processNotification(
+    public void processEmailNotification(
             ConsumerRecord<String, String> record,
             Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "EMAIL");
+    }
+    
+    /**
+     * Process SMS notifications.
+     * 
+     * SMS is expensive and rate-limited by providers.
+     * Lower concurrency to respect external rate limits.
+     */
+    @KafkaListener(
+        topics = "${notification.kafka.topic.sms:notifications.sms}",
+        groupId = "${spring.kafka.consumer.group-id:notification-service}-sms",
+        containerFactory = "kafkaListenerContainerFactory"
+    )
+    public void processSmsNotification(
+            ConsumerRecord<String, String> record,
+            Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "SMS");
+    }
+    
+    /**
+     * Process PUSH notifications.
+     * 
+     * Push notifications need to be fast for user experience.
+     * Consider higher concurrency for production.
+     */
+    @KafkaListener(
+        topics = "${notification.kafka.topic.push:notifications.push}",
+        groupId = "${spring.kafka.consumer.group-id:notification-service}-push",
+        containerFactory = "kafkaListenerContainerFactory"
+    )
+    public void processPushNotification(
+            ConsumerRecord<String, String> record,
+            Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "PUSH");
+    }
+    
+    /**
+     * Process IN-APP notifications.
+     * 
+     * In-app notifications are stored locally, very fast.
+     * Moderate concurrency is usually sufficient.
+     */
+    @KafkaListener(
+        topics = "${notification.kafka.topic.in-app:notifications.in-app}",
+        groupId = "${spring.kafka.consumer.group-id:notification-service}-inapp",
+        containerFactory = "kafkaListenerContainerFactory"
+    )
+    public void processInAppNotification(
+            ConsumerRecord<String, String> record,
+            Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "IN_APP");
+    }
+    
+    // ==================== Common Processing Logic ====================
+    
+    /**
+     * Common notification processing logic for all channels.
+     * 
+     * @param record The Kafka record containing notification ID
+     * @param acknowledgment Manual acknowledgment handle
+     * @param channel The channel type for logging
+     */
+    private void processNotification(
+            ConsumerRecord<String, String> record,
+            Acknowledgment acknowledgment,
+            String channel) {
         
         String notificationIdStr = record.value();
         
-        log.info("Received notification from Kafka: {} (partition={}, offset={})",
-            notificationIdStr, record.partition(), record.offset());
+        log.info("Received {} notification from Kafka: {} (topic={}, partition={}, offset={})",
+            channel, notificationIdStr, record.topic(), record.partition(), record.offset());
         
         try {
             // Parse the notification ID

@@ -191,11 +191,17 @@ springdoc:
 # These are accessed via @Value or @ConfigurationProperties
 #
 notification:
-  # Kafka topic names
+  # Kafka topic names (channel-specific for independent scaling)
   kafka:
     topic:
-      notifications: notifications       # Main topic for all notifications
-      notifications-dlq: notifications-dlq  # Dead Letter Queue for failed messages
+      # Channel-specific topics (Alex Xu's design pattern)
+      # Each channel can scale independently
+      email: notifications.email           # Email notifications topic
+      sms: notifications.sms               # SMS notifications topic  
+      push: notifications.push             # Push notifications topic
+      in-app: notifications.in-app         # In-app notifications topic
+      # Dead Letter Queue for failed messages
+      dlq: notifications.dlq
   
   # Rate limiting configuration (per user, per channel)
   rate-limit:

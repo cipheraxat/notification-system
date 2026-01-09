@@ -730,20 +730,39 @@ Located in: `src/main/java/com/notification/kafka/`
 
 #### 📄 `NotificationConsumer.java`
 
-**Purpose:** Listens to Kafka topic and processes notifications asynchronously.
+**Purpose:** Listens to channel-specific Kafka topics and processes notifications asynchronously.
+
+**Channel-Specific Topics (Alex Xu's Design Pattern):**
+- `notifications.email` - Email notifications
+- `notifications.sms` - SMS notifications  
+- `notifications.push` - Push notifications
+- `notifications.in-app` - In-app notifications
 
 ```java
 @Component
 public class NotificationConsumer {
     
-    @KafkaListener(topics = "notifications", groupId = "notification-group")
-    public void consume(String notificationId) {
-        // This method is called automatically when a message arrives
-        
-        log.info("Received notification ID: {}", notificationId);
-        
-        // Process the notification
-        notificationService.processNotification(UUID.fromString(notificationId));
+    // Each channel has its own listener for independent scaling
+    @KafkaListener(topics = "${notification.kafka.topic.email:notifications.email}",
+                   groupId = "${spring.kafka.consumer.group-id:notification-service}-email")
+    public void processEmailNotification(ConsumerRecord<String, String> record, 
+                                         Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "EMAIL");
+    }
+    
+    @KafkaListener(topics = "${notification.kafka.topic.sms:notifications.sms}",
+                   groupId = "${spring.kafka.consumer.group-id:notification-service}-sms")
+    public void processSmsNotification(ConsumerRecord<String, String> record,
+                                       Acknowledgment acknowledgment) {
+        processNotification(record, acknowledgment, "SMS");
+    }
+    
+    // ... similar for PUSH and IN_APP
+    
+    private void processNotification(ConsumerRecord<String, String> record,
+                                     Acknowledgment acknowledgment, String channel) {
+        UUID notificationId = UUID.fromString(record.value());
+        // Fetch from DB, dispatch to handler, update status
     }
 }
 ```
@@ -751,20 +770,24 @@ public class NotificationConsumer {
 **How Async Processing Works:**
 
 ```
-┌──────────┐    ┌─────────┐    ┌──────────────┐    ┌────────────────┐
-│  Client  │───>│   API   │───>│    Kafka     │───>│    Consumer    │
-│          │    │         │    │    Topic     │    │    (Worker)    │
-└──────────┘    └─────────┘    └──────────────┘    └────────────────┘
-                    │                                      │
-                    │ Returns immediately                  │ Processes async
-                    │ with "PENDING" status                │ Updates to "SENT"
-                    ▼                                      ▼
+┌──────────┐    ┌─────────┐    ┌────────────────────────┐    ┌────────────────┐
+│  Client  │───>│   API   │───>│  Channel-Specific      │───>│    Consumer    │
+│          │    │         │    │  Kafka Topics          │    │    (Worker)    │
+└──────────┘    └─────────┘    │  ├─ notifications.email│    └────────────────┘
+                    │          │  ├─ notifications.sms  │           │
+                    │          │  ├─ notifications.push │           │
+                    │          │  └─ notifications.in-app│          │
+                    │          └────────────────────────┘           │
+                    │ Returns immediately                           │ Processes async
+                    │ with "PENDING" status                         │ Updates to "SENT"
+                    ▼                                               ▼
 ```
 
-**Why Kafka?**
-1. **Decoupling**: API returns fast, processing happens separately
-2. **Resilience**: If processing fails, message stays in queue
-3. **Scalability**: Can add more consumers for high load
+**Why Channel-Specific Topics?**
+1. **Independent Scaling**: More email consumers, fewer SMS consumers based on volume
+2. **Fault Isolation**: Email provider issues don't affect push notifications
+3. **Different SLAs**: Push can have higher processing priority
+4. **Better Monitoring**: Track lag and throughput per channel separately
 
 ---
 
@@ -901,8 +924,9 @@ public class RetryScheduler {
 │          └─> NotificationRepository.save(notification)                     │
 │          └─> PostgreSQL: INSERT INTO notifications...                      │
 │                                                                            │
-│  Step 6: Send to Kafka                                                     │
-│          └─> KafkaTemplate.send("notifications", notificationId)           │
+│  Step 6: Send to channel-specific Kafka topic (Alex Xu's pattern)          │
+│          └─> KafkaTemplate.send("notifications.email", notificationId)     │
+│          └─> Or: notifications.sms, notifications.push, notifications.in-app│
 │                                                                            │
 │  Step 7: Return response with status=PENDING                               │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -912,16 +936,20 @@ public class RetryScheduler {
                     ▼                                   ▼
 ┌──────────────────────────────────┐    ┌──────────────────────────────────┐
 │      IMMEDIATE RESPONSE          │    │      ASYNC PROCESSING            │
-│                                  │    │      (Kafka Consumer)            │
+│                                  │    │      (Channel-Specific Consumer) │
 │  {                               │    │                                  │
-│    "success": true,              │    │  NotificationConsumer.consume()  │
-│    "data": {                     │    │                                  │
-│      "id": "abc-123",            │    │  Step 1: Parse notification ID   │
-│      "status": "PENDING"         │    │                                  │
-│    }                             │    │  Step 2: Load from database      │
+│    "success": true,              │    │  NotificationConsumer            │
+│    "data": {                     │    │  .processEmailNotification()     │
+│      "id": "abc-123",            │    │  .processSmsNotification()       │
+│      "status": "PENDING"         │    │  .processPushNotification()      │
+│    }                             │    │  .processInAppNotification()     │
 │  }                               │    │                                  │
-│                                  │    │  Step 3: Get user details        │
+│                                  │    │  Step 1: Parse notification ID   │
 └──────────────────────────────────┘    │                                  │
+                                        │  Step 2: Load from database      │
+                                        │                                  │
+                                        │  Step 3: Get user details        │
+                                        │                                  │
                                         │  Step 4: Dispatch to channel     │
                                         │          └─> ChannelDispatcher   │
                                         │          └─> EmailChannelHandler │
@@ -1023,6 +1051,14 @@ spring:
 
 # Custom application settings
 notification:
+  # Channel-specific Kafka topics (Alex Xu's design pattern)
+  kafka:
+    topic:
+      email: notifications.email       # Email notifications
+      sms: notifications.sms           # SMS notifications
+      push: notifications.push         # Push notifications
+      in-app: notifications.in-app     # In-app notifications
+      dlq: notifications.dlq           # Dead Letter Queue
   rate-limit:
     requests-per-minute: 10     # Max 10 notifications per user per minute
   retry:
