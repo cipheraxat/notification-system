@@ -28,6 +28,31 @@
 
 ## 60-Second Elevator Pitch
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Your "hook" for behavioral interviews
+==========================================================================
+
+WHEN TO USE:
+- "Tell me about yourself"
+- "Tell me about a project you've worked on"
+- "What's the most interesting thing you've built?"
+
+TIPS FOR DELIVERY:
+1. Practice until you can say it naturally (not memorized-sounding)
+2. Pause briefly between bullet points for emphasis
+3. End with the flow diagram - it shows you understand the full picture
+4. Be ready to dive deeper into ANY part they ask about
+
+KEY BUZZWORDS INCLUDED:
+- Alex Xu (shows you study system design)
+- Asynchronous processing (modern architecture)
+- Token Bucket algorithm (shows algorithm knowledge)
+- Exponential backoff (reliability pattern)
+- SOLID principles (clean code awareness)
+==========================================================================
+-->
+
 > **Use this when asked: "Tell me about a project you've worked on"**
 
 *"I built a multi-channel notification system following Alex Xu's system design principles. It sends notifications via Email, SMS, Push, and In-App channels.*
@@ -44,6 +69,31 @@
 ---
 
 ## Project Architecture Overview
+
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Visual understanding of system components
+==========================================================================
+
+WHY THIS MATTERS IN INTERVIEWS:
+- Interviewers often ask you to "draw the architecture"
+- Shows you understand how components connect
+- Demonstrates you can think at a system level, not just code level
+
+KEY CONCEPTS TO EMPHASIZE:
+1. LAYERED ARCHITECTURE: Controller → Service → Repository (separation of concerns)
+2. ASYNC PROCESSING: API returns fast, Kafka handles slow work
+3. WORKER PATTERN: Consumer processes messages independently
+4. STRATEGY PATTERN: ChannelDispatcher routes to correct handler
+
+WHEN WHITEBOARDING:
+- Start with the client on the left
+- Draw the main service box in the middle
+- Show Kafka as the bridge to async processing
+- End with the channel handlers on the right
+- Use arrows to show data flow direction
+==========================================================================
+-->
 
 ### High-Level Flow
 
@@ -100,7 +150,50 @@
 
 ## Component Deep Dives
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Technical depth for follow-up questions
+==========================================================================
+
+WHEN INTERVIEWERS ASK:
+- "How does X work under the hood?"
+- "Why did you choose this approach?"
+- "What happens when Y fails?"
+
+EACH COMPONENT COVERS:
+1. HOW it works (with diagrams)
+2. WHY you chose this approach
+3. KEY CODE snippets (memorize these!)
+4. TRADE-OFFS you accepted
+
+PRO TIP: Know these components inside-out. Interviewers love to 
+pick one and go deep. If you can explain Rate Limiter or Retry 
+Mechanism in detail, you'll stand out.
+==========================================================================
+-->
+
 ### 1. Rate Limiter (Token Bucket Algorithm)
+
+<!--
+🔑 INTERVIEW GOLD: Rate limiting is asked in 80% of system design interviews!
+
+ALTERNATIVE ALGORITHMS (know these for comparison):
+- Fixed Window: Simple but has boundary burst problem
+- Sliding Window Log: Accurate but memory-intensive
+- Sliding Window Counter: Good balance (what we use)
+- Token Bucket: Allows bursts, simple to implement ← OUR CHOICE
+- Leaky Bucket: Smooths out bursts, constant rate
+
+WHY TOKEN BUCKET FOR US:
+1. We WANT to allow bursts (bulk notifications are valid)
+2. Simple to implement with Redis INCR + TTL
+3. Self-resets without cleanup jobs
+
+COMMON FOLLOW-UP QUESTIONS:
+- "What if Redis goes down?" → Fail open (allow) or fail closed (deny)
+- "How do you handle distributed rate limiting?" → Redis is shared across instances
+- "What about race conditions?" → Redis INCR is atomic
+-->
 
 **Location:** `RateLimiterService.java`
 
@@ -147,6 +240,31 @@ if (newCount == 1) {
 
 ### 2. Message Queue (Kafka)
 
+<!--
+🔑 INTERVIEW GOLD: Async processing is a MUST-KNOW for SDE-2 and above!
+
+WHY ASYNC MATTERS:
+- Users don't wait for slow operations (emails take 2-5 seconds)
+- System stays responsive under load
+- Failures are isolated (one bad email doesn't crash the API)
+
+KAFKA vs RABBITMQ (common interview question):
+┌─────────────────┬──────────────────┬──────────────────┐
+│    Feature      │      Kafka       │    RabbitMQ      │
+├─────────────────┼──────────────────┼──────────────────┤
+│ Throughput      │ Millions/sec     │ Thousands/sec    │
+│ Durability      │ Disk by default  │ Optional         │
+│ Message Replay  │ Yes (offset)     │ No               │
+│ Ordering        │ Per partition    │ Per queue        │
+│ Complexity      │ Higher           │ Lower            │
+│ Use Case        │ Event streaming  │ Task queues      │
+└─────────────────┴──────────────────┴──────────────────┘
+
+ALEX XU'S PATTERN (we implemented this!):
+- Separate topic per channel → Independent scaling
+- Each channel can have different: partition count, retention, consumer count
+-->
+
 **Why Kafka?**
 | Without Kafka | With Kafka |
 |---------------|------------|
@@ -176,6 +294,34 @@ factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
 ---
 
 ### 3. Retry Mechanism
+
+<!--
+🔑 INTERVIEW GOLD: Reliability and fault tolerance are key SDE-2 topics!
+
+WHY EXPONENTIAL BACKOFF:
+- Immediate retry floods failing service
+- Exponential backoff gives service time to recover
+- Industry standard: AWS, Google, Stripe all use this
+
+RETRY MATH:
+- Retry 1: 1 minute (2^0)
+- Retry 2: 2 minutes (2^1)  
+- Retry 3: 4 minutes (2^2)
+- Retry 4: 8 minutes (2^3)
+- Retry 5: 16 minutes (2^4) → Then FAIL permanently
+
+TOTAL WAIT: 31 minutes before giving up
+
+COMMON FOLLOW-UP QUESTIONS:
+- "Why not retry immediately?" → Would overwhelm failing service
+- "What if retries also fail?" → Max retries then FAILED status
+- "How do you prevent duplicate sends?" → Idempotent processing, check status before sending
+- "What about stuck notifications?" → RetryScheduler resets PROCESSING > 10 min old
+
+TWO LAYERS OF RETRY:
+1. Kafka Consumer (immediate) → Fast retry for transient failures
+2. RetryScheduler (cron job) → Catches anything that slipped through
+-->
 
 **Retry Flow:**
 ```
@@ -216,6 +362,33 @@ this.nextRetryAt = OffsetDateTime.now().plusMinutes(delayMinutes);
 
 ### 4. Channel Handler Pattern (Strategy Pattern)
 
+<!--
+🔑 INTERVIEW GOLD: Design patterns show you write maintainable code!
+
+STRATEGY PATTERN EXPLAINED:
+- Define a family of algorithms (send via Email, SMS, Push, In-App)
+- Make them interchangeable (same interface, different implementations)
+- Select algorithm at runtime (based on notification.channel)
+
+SOLID PRINCIPLES DEMONSTRATED:
+- S: Single Responsibility → Each handler does one thing
+- O: Open/Closed → Add new channel without changing existing code
+- L: Liskov Substitution → Any handler can replace another
+- I: Interface Segregation → ChannelHandler interface is minimal
+- D: Dependency Inversion → Dispatcher depends on interface, not implementations
+
+WHY O(1) DISPATCH MATTERS:
+- HashMap lookup vs if-else chain
+- if-else: O(n) - checks each condition
+- HashMap: O(1) - direct lookup
+- With 4 channels doesn't matter, with 20+ channels it does!
+
+COMMON FOLLOW-UP QUESTIONS:
+- "How would you add WhatsApp?" → Create WhatsAppChannelHandler implements ChannelHandler
+- "What if a handler is slow?" → Each channel has its own Kafka topic, doesn't block others
+- "How do you test handlers?" → Mock the external provider, verify send() was called
+-->
+
 **Interface:**
 ```java
 public interface ChannelHandler {
@@ -254,6 +427,32 @@ return handler.send(notification);
 
 ## Design Decisions & Trade-offs
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Show you think critically about technology choices
+==========================================================================
+
+WHY THIS MATTERS:
+- Senior engineers don't just code - they make decisions
+- Every choice has pros and cons
+- Interviewers want to see you can justify YOUR choices
+
+HOW TO USE THIS TABLE:
+1. Memorize at least 3 decisions with their trade-offs
+2. When asked "why X?", state the WHY first, then acknowledge the trade-off
+3. Show you considered alternatives
+
+EXAMPLE RESPONSE:
+"I chose Kafka over RabbitMQ because I needed durability and replay 
+capability. The trade-off is operational complexity, but for a 
+notification system where losing messages is unacceptable, it's worth it."
+
+PRO TIP: If interviewer pushes back on a decision, don't get defensive!
+Say: "That's a valid point. In a different context with [X constraint], 
+I would consider [alternative]."
+==========================================================================
+-->
+
 | Decision | Why | Trade-off |
 |----------|-----|-----------|
 | **Kafka over RabbitMQ** | Better durability, replay capability, high throughput | More complex to operate |
@@ -268,7 +467,48 @@ return handler.send(notification);
 
 ## Interview Questions & Answers
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Prepared answers for common questions
+==========================================================================
+
+HOW TO USE:
+1. DON'T memorize word-for-word (sounds robotic)
+2. DO understand the KEY POINTS in each answer
+3. Practice explaining in YOUR OWN WORDS
+4. Have 2-3 specific details ready for each topic
+
+QUESTION CATEGORIES:
+- System Design: Architecture, flow, scalability
+- Design Patterns: Strategy, Repository, Factory
+- Database: Schema, indexes, queries
+- Kafka: Topics, consumers, reliability
+- Redis: Caching, rate limiting
+- API: REST design, error handling
+- Reliability: Retries, failures, monitoring
+- Scaling: Horizontal, vertical, bottlenecks
+
+PRO TIP: After answering, PAUSE. Let interviewer ask follow-up.
+Don't over-explain or you'll run out of things to say!
+==========================================================================
+-->
+
 ### System Design Questions
+
+<!--
+🎯 SYSTEM DESIGN QUESTIONS: Most important for SDE-2!
+
+What they're testing:
+- Can you design systems, not just write code?
+- Do you understand distributed systems concepts?
+- Can you explain complex systems simply?
+
+Key points to hit:
+1. Start with requirements (functional & non-functional)
+2. Draw high-level architecture first
+3. Dive deep into components when asked
+4. Always mention trade-offs
+-->
 
 ---
 
@@ -371,6 +611,27 @@ This ensures **at-least-once delivery** - we might send duplicates, but we'll ne
 
 ### Architecture & Design Pattern Questions
 
+<!--
+🎯 DESIGN PATTERN QUESTIONS: Shows you write maintainable code!
+
+What they're testing:
+- Do you know common design patterns?
+- Can you apply them appropriately?
+- Do you understand SOLID principles?
+
+PATTERNS TO KNOW COLD:
+1. Strategy → ChannelHandler (most important for this project)
+2. Repository → Database abstraction
+3. Builder → Object construction
+4. Factory → ChannelDispatcher
+5. Observer → Event-driven (Kafka pub/sub)
+
+PRO TIP: When explaining patterns, always tie to SOLID:
+- Strategy → Open/Closed Principle
+- Repository → Dependency Inversion
+- Factory → Single Responsibility
+-->
+
 ---
 
 **Q6: What design patterns did you use?**
@@ -449,6 +710,27 @@ That's it. Spring auto-discovers the new handler, the dispatcher registers it au
 
 ### Database & Data Modeling Questions
 
+<!--
+🎯 DATABASE QUESTIONS: Critical for any backend role!
+
+What they're testing:
+- Can you design schemas that scale?
+- Do you understand indexing?
+- Do you know query optimization?
+
+KEY TOPICS:
+1. Schema design (normalization, denormalization)
+2. Indexing strategy (when to add, trade-offs)
+3. UUID vs auto-increment
+4. Partitioning for scale
+5. Query optimization (EXPLAIN ANALYZE)
+
+REMEMBER THE INDEXES:
+- idx_notifications_user_id → For inbox queries
+- idx_notifications_status → For worker picking up PENDING
+- idx_notifications_user_created → For pagination (composite index!)
+-->
+
 ---
 
 **Q9: Explain your database schema design.**
@@ -519,6 +801,28 @@ For this use case, the benefits outweigh the costs."
 ---
 
 ### Kafka & Messaging Questions
+
+<!--
+🎯 KAFKA QUESTIONS: Hot topic for distributed systems!
+
+What they're testing:
+- Do you understand message queue concepts?
+- Can you handle failures gracefully?
+- Do you know Kafka-specific patterns?
+
+KEY CONCEPTS:
+1. Topics & Partitions (parallelism)
+2. Consumer Groups (scaling)
+3. Offsets (message tracking)
+4. At-least-once vs exactly-once delivery
+5. Idempotent consumers (handling duplicates)
+
+COMMON GOTCHAS:
+- "What if Kafka is down?" → Save-then-publish pattern
+- "What about duplicates?" → Idempotent processing
+- "How do you scale?" → More partitions + more consumers
+- "Message ordering?" → Ordering per partition, not across
+-->
 
 ---
 
@@ -599,6 +903,28 @@ Each channel also has its own consumer group for independent offset tracking."
 
 ### Redis & Caching Questions
 
+<!--
+🎯 REDIS QUESTIONS: Every backend system uses Redis!
+
+What they're testing:
+- Do you understand caching patterns?
+- Can you design for distributed systems?
+- Do you know Redis-specific features?
+
+KEY CONCEPTS:
+1. Cache-aside pattern (check cache, then DB)
+2. TTL for expiration
+3. Atomic operations (INCR, SETNX)
+4. Redis as rate limiter
+5. Redis cluster for HA
+
+OUR USE CASES:
+1. Rate limiting (INCR + TTL)
+2. Could add: Template caching
+3. Could add: User preference caching
+4. Could add: Session storage
+-->
+
 ---
 
 **Q15: Why Redis for rate limiting instead of in-memory?**
@@ -641,6 +967,28 @@ For production, I'd recommend:
 ---
 
 ### API Design Questions
+
+<!--
+🎯 API DESIGN QUESTIONS: Foundation of backend development!
+
+What they're testing:
+- Do you follow REST best practices?
+- Do you understand HTTP semantics?
+- Can you design intuitive APIs?
+
+KEY CONCEPTS:
+1. HTTP status codes (200, 201, 202, 400, 401, 404, 429, 500)
+2. Resource naming (nouns, not verbs)
+3. Versioning (v1 in URL)
+4. Pagination (offset vs cursor)
+5. Error response format
+
+OUR API HIGHLIGHTS:
+- 202 Accepted for async operations
+- Consistent ApiResponse wrapper
+- Pagination for inbox endpoint
+- Proper validation with Bean Validation
+-->
 
 ---
 
@@ -713,6 +1061,28 @@ public ResponseEntity<ApiResponse<Map<String, String>>> handleValidation(...) {
 
 ### Error Handling & Reliability Questions
 
+<!--
+🎯 RELIABILITY QUESTIONS: Shows you build production-ready systems!
+
+What they're testing:
+- Do you think about failure cases?
+- Can you design resilient systems?
+- Do you understand distributed systems challenges?
+
+KEY CONCEPTS:
+1. Graceful degradation (system works with reduced functionality)
+2. Fail-fast vs fail-safe
+3. Bulkhead pattern (isolate failures)
+4. Circuit breaker (stop cascading failures)
+5. Monitoring and alerting
+
+MENTAL MODEL FOR FAILURES:
+- What if DB is down? → Return error, Kafka still has message
+- What if Kafka is down? → Notification saved in DB, retry job picks it up
+- What if Redis is down? → Fail open (allow) or fail closed (deny)
+- What if provider is down? → Exponential backoff, max retries, then FAILED
+-->
+
 ---
 
 **Q19: How do you handle partial failures in bulk notifications?**
@@ -783,6 +1153,31 @@ for (UUID userId : request.getUserIds()) {
 
 ### Scaling & Performance Questions
 
+<!--
+🎯 SCALING QUESTIONS: Critical for SDE-2 and above!
+
+What they're testing:
+- Can you identify bottlenecks?
+- Do you understand horizontal vs vertical scaling?
+- Can you design for growth?
+
+SCALING STRATEGY BY LAYER:
+┌───────────┬─────────────────┬───────────────────────┐
+│   Layer   │    How to Scale   │       Notes             │
+├───────────┼─────────────────┼───────────────────────┤
+│ API       │ More instances     │ Stateless, easy         │
+│ Kafka     │ More partitions    │ Enables more consumers  │
+│ Workers   │ More consumers     │ Same group ID           │
+│ Database  │ Read replicas      │ For inbox queries       │
+│ Redis     │ Redis Cluster      │ Consistent hashing      │
+└───────────┴─────────────────┴───────────────────────┘
+
+BOTTLENECK ANALYSIS:
+1. First bottleneck: Usually database writes
+2. Second bottleneck: External provider rate limits
+3. Third bottleneck: Kafka partition count
+-->
+
 ---
 
 **Q21: How would you scale this system to handle 10x traffic?**
@@ -832,6 +1227,32 @@ For the current scale, PostgreSQL with proper indexes handles millions of notifi
 ---
 
 ### Code Quality & Testing Questions
+
+<!--
+🎯 TESTING QUESTIONS: Shows you write maintainable code!
+
+What they're testing:
+- Do you write tests?
+- Do you understand different test levels?
+- Can you design testable code?
+
+TEST PYRAMID:
+        /\           E2E Tests (few, slow, expensive)
+       /  \
+      /----\        Integration Tests (some)
+     /      \
+    /--------\     Unit Tests (many, fast, cheap)
+
+OUR TESTS:
+1. Unit: RateLimiterServiceTest, NotificationServiceTest
+2. Integration: Full Spring context with Docker DB
+3. Manual: Swagger UI, Postman collection
+
+TESTABILITY DESIGN:
+- Constructor injection → Easy to pass mocks
+- Interface-based → Can mock dependencies
+- Single responsibility → Smaller units to test
+-->
 
 ---
 
@@ -891,6 +1312,33 @@ This follows 12-factor app principles - config in environment, not code."
 ---
 
 ### Behavioral/Situational Questions
+
+<!--
+🎯 BEHAVIORAL QUESTIONS: They're evaluating YOU, not just your code!
+
+What they're testing:
+- How do you approach problems?
+- Can you learn from mistakes?
+- Do you make good trade-off decisions?
+
+STAR METHOD:
+- Situation: Set the context
+- Task: What was your responsibility?
+- Action: What did YOU do?
+- Result: What was the outcome?
+
+PRO TIPS:
+1. Be honest about challenges (shows self-awareness)
+2. Explain your REASONING, not just actions
+3. Show what you LEARNED
+4. Acknowledge what you'd do DIFFERENTLY
+
+RED FLAGS TO AVOID:
+- Blaming others
+- Saying "we" when you mean "I"
+- Over-engineering explanations
+- Claiming everything was perfect
+-->
 
 ---
 
@@ -954,6 +1402,34 @@ This keeps the project explainable in an interview without inviting questions I 
 
 ## How to Whiteboard This System
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Step-by-step guide for whiteboard interviews
+==========================================================================
+
+TIMING (typically 45-60 min interview):
+- Requirements: 2-3 min (DON'T SKIP THIS!)
+- High-level design: 5-7 min
+- Deep dive: 15-20 min
+- Trade-offs: 5 min
+- Questions for them: 5 min
+
+COMMON MISTAKES:
+1. Jumping straight to solution (ask requirements first!)
+2. Going too deep too fast (start high-level)
+3. Not drawing (visuals help communication)
+4. Ignoring interviewer hints (they're guiding you)
+5. Not discussing trade-offs (shows maturity)
+
+WHAT TO DRAW FIRST:
+1. Client/User on the left
+2. Your service in the middle
+3. Databases/caches on the right
+4. Arrows showing data flow
+5. Add detail as you discuss each component
+==========================================================================
+-->
+
 When asked to design on a whiteboard:
 
 ### Step 1: Clarify Requirements (2 min)
@@ -983,6 +1459,33 @@ Pick ONE area based on interviewer interest:
 
 ## Keywords to Use in Interviews
 
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Vocabulary that impresses interviewers
+==========================================================================
+
+WHY KEYWORDS MATTER:
+- Shows you speak the language of senior engineers
+- Demonstrates breadth of knowledge
+- Triggers follow-up questions you're prepared for
+
+HOW TO USE:
+- Sprinkle naturally, don't force
+- Be ready to explain any term you use
+- Use the right term for the context
+
+EXAMPLE:
+"I used the Strategy Pattern for channel handlers, which follows the 
+Open/Closed Principle - the system is open for extension but closed 
+for modification."
+
+TERMS TO AVOID (unless you can explain deeply):
+- Microservices (unless you have actual distributed services)
+- Event Sourcing (unless you implemented it)
+- CQRS (unless you have separate read/write models)
+==========================================================================
+-->
+
 **Architecture:**
 - Microservices, Layered Architecture, Clean Architecture
 - Dependency Injection, Inversion of Control
@@ -1011,6 +1514,20 @@ Pick ONE area based on interviewer interest:
 ---
 
 ## Quick Reference Card
+
+<!--
+==========================================================================
+📌 SECTION PURPOSE: Last-minute review before interview
+==========================================================================
+
+PRINT THIS OUT or memorize it!
+
+Review 10 minutes before your interview:
+1. Scan this table
+2. Make sure you can explain each answer in 30 seconds
+3. Deep breathe, you've got this!
+==========================================================================
+-->
 
 | Topic | Your Answer |
 |-------|-------------|
