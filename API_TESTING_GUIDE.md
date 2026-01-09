@@ -268,12 +268,14 @@ The database has these test users:
 ### Channels & Priorities
 
 **Channels:**
-| Channel | Description |
-|---------|-------------|
-| `EMAIL` | Email notifications |
-| `SMS` | Text messages |
-| `PUSH` | Mobile push notifications |
-| `IN_APP` | In-application notifications |
+| Channel | Description | Kafka Topic |
+|---------|-------------|-------------|
+| `EMAIL` | Email notifications | `notifications.email` |
+| `SMS` | Text messages | `notifications.sms` |
+| `PUSH` | Mobile push notifications | `notifications.push` |
+| `IN_APP` | In-application notifications | `notifications.in-app` |
+
+> **Architecture Note:** Each channel has its own Kafka topic for independent scaling (Alex Xu's design pattern). This means email delays won't affect push notifications, and each channel can have different consumer counts based on volume.
 
 **Priorities:**
 | Priority | Description | Use Case |
@@ -629,6 +631,52 @@ for channel in EMAIL SMS PUSH IN_APP; do
 done
 ```
 
+### Workflow 5: Verify Channel-Specific Kafka Routing
+
+Test that notifications are routed to the correct Kafka topic per channel:
+
+```bash
+# Step 1: Open Kafka UI in another terminal/browser
+open http://localhost:8090
+
+# Step 2: Send notifications to different channels
+echo "Sending EMAIL notification..."
+curl -s -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"550e8400-e29b-41d4-a716-446655440001","channel":"EMAIL","content":"Test email","priority":"HIGH"}' | python3 -m json.tool
+
+echo "Sending SMS notification..."
+curl -s -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"550e8400-e29b-41d4-a716-446655440001","channel":"SMS","content":"Test SMS","priority":"HIGH"}' | python3 -m json.tool
+
+echo "Sending PUSH notification..."
+curl -s -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"550e8400-e29b-41d4-a716-446655440001","channel":"PUSH","content":"Test push","priority":"HIGH"}' | python3 -m json.tool
+
+echo "Sending IN_APP notification..."
+curl -s -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"550e8400-e29b-41d4-a716-446655440001","channel":"IN_APP","content":"Test in-app","priority":"HIGH"}' | python3 -m json.tool
+
+# Step 3: Check Kafka UI - you should see messages in:
+# - notifications.email (1 message)
+# - notifications.sms (1 message)
+# - notifications.push (1 message)
+# - notifications.in-app (1 message)
+```
+
+**Expected Result in Kafka UI:**
+```
+Topics:
+├── notifications.email    → 1 message (from EMAIL notification)
+├── notifications.sms      → 1 message (from SMS notification)
+├── notifications.push     → 1 message (from PUSH notification)
+├── notifications.in-app   → 1 message (from IN_APP notification)
+└── notifications.dlq      → 0 messages (no failures)
+```
+
 ---
 
 ## Error Handling
@@ -763,7 +811,31 @@ curl: (7) Failed to connect to localhost port 8080: Connection refused
 WARN: Error while fetching metadata: UNKNOWN_TOPIC_OR_PARTITION
 ```
 
-**Solution:** This is normal during startup. Kafka auto-creates topics on first message. Wait a few seconds and the warnings will stop.
+**Solution:** This is normal during startup. Kafka auto-creates the channel-specific topics (`notifications.email`, `notifications.sms`, `notifications.push`, `notifications.in-app`) on first message. Wait a few seconds and the warnings will stop.
+
+### Checking Kafka Topics
+
+View messages in channel-specific queues:
+
+```bash
+# Open Kafka UI in browser
+open http://localhost:8090
+
+# Or use kafka-console-consumer to view messages
+docker exec -it notification-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic notifications.email \
+  --from-beginning
+```
+
+**Available Topics:**
+| Topic | Purpose | Partitions |
+|-------|---------|------------|
+| `notifications.email` | Email notifications | 3 |
+| `notifications.sms` | SMS notifications | 2 |
+| `notifications.push` | Push notifications | 4 |
+| `notifications.in-app` | In-app notifications | 3 |
+| `notifications.dlq` | Dead letter queue | 1 |
 
 ### Issue: Rate Limit Hit During Testing
 
@@ -826,6 +898,9 @@ exit
 
 - **Swagger UI:** http://localhost:8080/swagger-ui.html
 - **Kafka UI:** http://localhost:8090
+  - View channel-specific topics: `notifications.email`, `notifications.sms`, `notifications.push`, `notifications.in-app`
+  - Monitor consumer lag per channel
+  - Inspect messages in each topic
 - **Actuator Endpoints:** http://localhost:8080/actuator
 - **OpenAPI Spec:** http://localhost:8080/v3/api-docs
 

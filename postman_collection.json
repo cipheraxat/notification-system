@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "notification-system-api",
 		"name": "Notification System API",
-		"description": "Complete API collection for the Notification System - A scalable, multi-channel notification service built with Spring Boot.\n\n## Features\n- Multi-channel notifications (EMAIL, SMS, PUSH, IN_APP)\n- Template-based messaging\n- Rate limiting\n- Async processing with Kafka\n- Priority-based delivery\n\n## Base URL\n`http://localhost:8080`\n\n## Authentication\nCurrently no authentication required (development mode)",
+		"description": "Complete API collection for the Notification System - A scalable, multi-channel notification service built with Spring Boot.\n\n## Features\n- Multi-channel notifications (EMAIL, SMS, PUSH, IN_APP)\n- Template-based messaging\n- Rate limiting with Redis (Token Bucket algorithm)\n- Channel-specific Kafka queues (Alex Xu design pattern)\n- Priority-based delivery\n\n## Channel-Specific Kafka Topics\nEach channel routes to its own Kafka topic for independent scaling:\n- `notifications.email` (3 partitions) - Email notifications\n- `notifications.sms` (2 partitions) - SMS notifications\n- `notifications.push` (4 partitions) - Push notifications\n- `notifications.in-app` (3 partitions) - In-app notifications\n- `notifications.dlq` (1 partition) - Dead Letter Queue\n\n## Base URL\n`http://localhost:8080`\n\n## Authentication\nCurrently no authentication required (development mode)",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -137,7 +137,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications"]
 						},
-						"description": "Send a notification using a pre-defined template.\n\n**Channels:** EMAIL, SMS, PUSH, IN_APP\n\n**Priorities:** LOW, MEDIUM, HIGH, CRITICAL"
+						"description": "Send a notification using a pre-defined template.\n\n**Kafka Topic:** `notifications.email` (3 partitions)\n\n**Channels:** EMAIL, SMS, PUSH, IN_APP\n\n**Priorities:** LOW, MEDIUM, HIGH, CRITICAL"
 					},
 					"response": []
 				},
@@ -178,7 +178,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications"]
 						},
-						"description": "Send a notification with custom subject and content (no template)."
+						"description": "Send a notification with custom subject and content (no template).\n\n**Kafka Topic:** `notifications.email` (3 partitions)"
 					},
 					"response": []
 				},
@@ -205,7 +205,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications"]
 						},
-						"description": "Send an OTP verification code via SMS. Uses CRITICAL priority for immediate delivery."
+						"description": "Send an OTP verification code via SMS. Uses CRITICAL priority for immediate delivery.\n\n**Kafka Topic:** `notifications.sms` (2 partitions)"
 					},
 					"response": []
 				},
@@ -232,7 +232,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications"]
 						},
-						"description": "Send a push notification to user's mobile device."
+						"description": "Send a push notification to user's mobile device.\n\n**Kafka Topic:** `notifications.push` (4 partitions)"
 					},
 					"response": []
 				},
@@ -259,7 +259,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications"]
 						},
-						"description": "Send an in-app notification that appears in the user's notification center."
+						"description": "Send an in-app notification that appears in the user's notification center.\n\n**Kafka Topic:** `notifications.in-app` (3 partitions)"
 					},
 					"response": []
 				},
@@ -286,7 +286,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["api", "v1", "notifications", "bulk"]
 						},
-						"description": "Send the same notification to multiple users at once. Useful for announcements, promotions, etc."
+						"description": "Send the same notification to multiple users at once. Useful for announcements, promotions, etc.\n\n**Kafka Topic:** Routes to the appropriate channel-specific topic based on the channel parameter."
 					},
 					"response": []
 				},
@@ -375,7 +375,7 @@
 					"response": []
 				}
 			],
-			"description": "Endpoints for sending and managing notifications"
+			"description": "Endpoints for sending and managing notifications.\n\n## Channel-Specific Kafka Routing\nEach notification is routed to its dedicated Kafka topic based on channel:\n- EMAIL → `notifications.email`\n- SMS → `notifications.sms`\n- PUSH → `notifications.push`\n- IN_APP → `notifications.in-app`"
 		},
 		{
 			"name": "Templates",
