@@ -1811,6 +1811,230 @@ Review 10 minutes before your interview:
 
 ---
 
+## Database Schema Design
+
+### Entity Relationship Diagram
+```
+┌─────────────────┐       ┌─────────────────────┐
+│     users       │       │  user_preferences   │
+├─────────────────┤       ├─────────────────────┤
+│ id (UUID)       │◄──────┤ id (UUID)           │
+│ email (VARCHAR) │       │ user_id (FK)        │
+│ phone (VARCHAR) │       │ channel (VARCHAR)   │
+│ device_token    │       │ enabled (BOOLEAN)   │
+│ created_at      │       │ quiet_hours_start   │
+│ updated_at      │       │ quiet_hours_end     │
+└─────────────────┘       └─────────────────────┘
+         │                           │
+         │                           │
+         ▼                           │
+┌─────────────────┐       ┌─────────────────────┐
+│ notifications   │       │ notification_       │
+├─────────────────┤       │    templates        │
+│ id (UUID)       │       ├─────────────────────┤
+│ user_id (FK)    │──────►│ id (UUID)           │
+│ template_id (FK)│◄──────┤ name (VARCHAR)      │
+│ channel         │       │ channel (VARCHAR)   │
+│ priority        │       │ subject_template    │
+│ subject         │       │ body_template (TEXT)│
+│ content (TEXT)  │       │ is_active (BOOLEAN) │
+│ status          │       └─────────────────────┘
+│ retry_count     │
+│ max_retries     │
+│ next_retry_at   │
+│ error_message   │
+│ sent_at         │
+│ delivered_at    │
+│ read_at         │
+│ created_at      │
+└─────────────────┘
+```
+
+### Table Schemas
+
+#### Users Table
+```sql
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(20),
+    device_token VARCHAR(500),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### User Preferences Table
+```sql
+CREATE TABLE user_preferences (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel VARCHAR(20) NOT NULL,
+    enabled BOOLEAN DEFAULT true,
+    quiet_hours_start TIME,
+    quiet_hours_end TIME,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, channel)
+);
+```
+
+#### Notification Templates Table
+```sql
+CREATE TABLE notification_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    channel VARCHAR(20) NOT NULL,
+    subject_template VARCHAR(500),
+    body_template TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Notifications Table (Main Table)
+```sql
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    template_id UUID REFERENCES notification_templates(id),
+    channel VARCHAR(20) NOT NULL,
+    priority VARCHAR(10) NOT NULL DEFAULT 'MEDIUM',
+    subject VARCHAR(500),
+    content TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    next_retry_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    sent_at TIMESTAMP WITH TIME ZONE,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    read_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Design Decisions & Intuition
+
+#### Why UUID Primary Keys?
+- **Globally Unique**: No collisions across distributed systems
+- **No Sequence Gaps**: Don't reveal how many records exist (security)
+- **Client Generation**: Can generate IDs without database round-trip
+- **Microservices Ready**: Perfect for distributed architectures
+
+#### Why Separate User Preferences?
+- **Flexibility**: Each user can have different preferences per channel
+- **Scalability**: Preferences change less frequently than notifications
+- **Compliance**: Easy to implement "Do Not Disturb" features
+- **Analytics**: Track preference patterns across user base
+
+#### Why Template System?
+- **Consistency**: Standardized messaging across the platform
+- **Maintainability**: Change message content in one place
+- **Localization**: Easy to support multiple languages
+- **Personalization**: Template variables for dynamic content
+- **Testing**: Templates can be tested independently
+
+#### Why Comprehensive Notification Tracking?
+- **Audit Trail**: Complete history of all notifications sent
+- **Analytics**: Track delivery rates, user engagement, failures
+- **Debugging**: Detailed error messages and retry information
+- **Compliance**: Prove notifications were sent (legal requirements)
+- **Business Intelligence**: Understand user behavior patterns
+
+#### Status Flow Design
+```
+PENDING → PROCESSING → SENT → DELIVERED
+    ↓           ↓
+  FAILED     READ (in-app only)
+```
+
+- **PENDING**: Queued for processing
+- **PROCESSING**: Currently being sent (prevents duplicate processing)
+- **SENT**: Successfully delivered to provider (SMS gateway, email service)
+- **DELIVERED**: Confirmed received by user (webhook/callback)
+- **FAILED**: All retries exhausted
+- **READ**: User opened/acknowledged (in-app notifications only)
+
+#### Retry Strategy
+- **Exponential Backoff**: `next_retry_at = now + (2^retry_count * base_delay)`
+- **Maximum Retries**: Default 3 attempts before marking as FAILED
+- **Configurable**: Different retry counts for different priority levels
+- **Smart Scheduling**: Use database indexes for efficient retry queries
+
+#### Indexing Strategy
+```sql
+-- User inbox (most common query)
+CREATE INDEX idx_notifications_user_created ON notifications(user_id, created_at DESC);
+
+-- Processing queue (find pending notifications)
+CREATE INDEX idx_notifications_status ON notifications(status);
+
+-- Retry scheduling (find notifications ready for retry)
+CREATE INDEX idx_notifications_retry ON notifications(next_retry_at) 
+    WHERE status = 'PENDING' AND next_retry_at IS NOT NULL;
+
+-- Analytics (filter by channel/time)
+CREATE INDEX idx_notifications_channel ON notifications(channel);
+```
+
+**Why These Indexes?**
+- **User Inbox**: `user_id + created_at DESC` - Fast pagination for user's notification history
+- **Queue Processing**: `status` - Quickly find PENDING notifications to process
+- **Retry Logic**: Partial index on `next_retry_at` - Only index rows that need retry
+- **Analytics**: `channel` - Group notifications by delivery method
+
+#### Data Types Rationale
+- **UUID**: Globally unique identifiers (vs auto-increment integers)
+- **TIMESTAMP WITH TIME ZONE**: Proper timezone handling across regions
+- **TEXT**: Unlimited message content (vs VARCHAR limits)
+- **VARCHAR(500)**: Reasonable limits for subjects/tokens
+- **BOOLEAN**: Simple true/false flags (vs CHAR(1) 'Y'/'N')
+
+#### Constraints & Validation
+- **UNIQUE(email)**: Prevent duplicate user accounts
+- **UNIQUE(user_id, channel)**: One preference per user per channel
+- **UNIQUE(name)**: Template names must be unique
+- **NOT NULL**: Critical fields that must always have values
+- **FOREIGN KEY**: Maintain referential integrity
+- **ON DELETE CASCADE**: Clean up related data when users are deleted
+
+### Database Performance Considerations
+
+#### Read-Heavy Workload
+- **Notification System**: 90% reads (checking preferences, templates) vs 10% writes
+- **User Inbox**: Frequent queries for user's notification history
+- **Analytics**: Aggregate queries on notification data
+
+#### Write Patterns
+- **Notifications**: High-volume inserts (millions per day)
+- **Status Updates**: Frequent updates during processing
+- **Retry Logic**: Updates to retry_count and next_retry_at
+
+#### Optimization Strategies
+- **Connection Pooling**: Reuse database connections (HikariCP)
+- **Read Replicas**: Separate read traffic from writes
+- **Partitioning**: Partition notifications table by month/year
+- **Archiving**: Move old notifications to cold storage
+
+### Interview Questions: Database Design
+
+| **Question** | **Answer** |
+|--------------|------------|
+| **Why UUIDs?** | Global uniqueness, no sequence gaps, client generation |
+| **Why separate preferences?** | User control, compliance, different settings per channel |
+| **Why templates?** | Consistency, maintainability, localization support |
+| **Why track everything?** | Audit trail, analytics, debugging, compliance |
+| **Status flow?** | PENDING→PROCESSING→SENT→DELIVERED, with FAILED/READ |
+| **Retry strategy?** | Exponential backoff, max 3 retries, configurable |
+| **Indexing strategy?** | User inbox, queue processing, retry scheduling, analytics |
+| **Performance?** | Read-heavy, connection pooling, read replicas, partitioning |
+| **Data integrity?** | Foreign keys, constraints, cascading deletes |
+| **Scalability?** | Partitioning, archiving, read replicas |
+
+---
+
 ## AWS Production Deployment (Multi-Country Scenario)
 
 ### Global Architecture Overview
