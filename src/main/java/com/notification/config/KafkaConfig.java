@@ -76,7 +76,7 @@ public class KafkaConfig {
     public NewTopic emailNotificationsTopic() {
         return TopicBuilder.name(emailTopic)
             .partitions(3)      // 3 partitions for parallelism
-            .replicas(1)        // 1 replica (increase in production)
+            .replicas(3)        // 3 replicas for fault tolerance
             .build();
     }
     
@@ -84,7 +84,7 @@ public class KafkaConfig {
     public NewTopic smsNotificationsTopic() {
         return TopicBuilder.name(smsTopic)
             .partitions(2)      // Fewer partitions (SMS is rate-limited by providers)
-            .replicas(1)
+            .replicas(3)
             .build();
     }
     
@@ -92,7 +92,7 @@ public class KafkaConfig {
     public NewTopic pushNotificationsTopic() {
         return TopicBuilder.name(pushTopic)
             .partitions(4)      // More partitions (push needs to be fast)
-            .replicas(1)
+            .replicas(3)
             .build();
     }
     
@@ -100,7 +100,7 @@ public class KafkaConfig {
     public NewTopic inAppNotificationsTopic() {
         return TopicBuilder.name(inAppTopic)
             .partitions(3)
-            .replicas(1)
+            .replicas(3)
             .build();
     }
     
@@ -108,7 +108,7 @@ public class KafkaConfig {
     public NewTopic dlqTopic() {
         return TopicBuilder.name(dlqTopic)
             .partitions(1)      // Single partition for DLQ
-            .replicas(1)
+            .replicas(3)
             .build();
     }
     

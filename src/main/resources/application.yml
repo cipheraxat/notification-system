@@ -88,7 +88,7 @@ spring:
   # ==================== Kafka (Message Queue) ====================
   kafka:
     # Bootstrap servers = initial Kafka brokers to connect to
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: localhost:9092,localhost:9093,localhost:9094
     
     # Producer: Our API uses this to send messages to Kafka
     producer:

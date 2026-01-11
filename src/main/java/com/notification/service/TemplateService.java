@@ -16,6 +16,8 @@ import com.notification.model.enums.ChannelType;
 import com.notification.repository.NotificationTemplateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,10 +51,14 @@ public class TemplateService {
      * @Transactional ensures that if anything fails, changes are rolled back.
      * The default is readOnly=false, which allows write operations.
      * 
+     * @CacheEvict clears all cached templates when a new one is created.
+     * This ensures cache consistency - we don't want stale cached data.
+     * 
      * @param request The template creation request
      * @return The created template as a response DTO
      */
     @Transactional
+    @CacheEvict(value = "templates", allEntries = true)
     public TemplateResponse createTemplate(CreateTemplateRequest request) {
         log.info("Creating template: {}", request.getName());
         
@@ -97,8 +103,12 @@ public class TemplateService {
     
     /**
      * Get a template by name.
+     * 
+     * @Cacheable caches the result to avoid repeated database lookups.
+     * Templates are read frequently but updated rarely.
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "templates", key = "'name:' + #name")
     public TemplateResponse getTemplateByName(String name) {
         NotificationTemplate template = templateRepository.findByName(name)
             .orElseThrow(() -> new ResourceNotFoundException("Template", "name", name));
@@ -128,8 +138,12 @@ public class TemplateService {
     
     /**
      * Update a template.
+     * 
+     * @CacheEvict clears all cached templates when one is updated.
+     * This ensures cache consistency - updated templates must be refreshed.
      */
     @Transactional
+    @CacheEvict(value = "templates", allEntries = true)
     public TemplateResponse updateTemplate(UUID id, CreateTemplateRequest request) {
         NotificationTemplate template = templateRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Template", "id", id));
@@ -160,8 +174,12 @@ public class TemplateService {
      * 
      * We don't hard delete because historical notifications
      * reference this template for audit purposes.
+     * 
+     * @CacheEvict clears all cached templates when one is deleted.
+     * This ensures cache consistency - deleted templates are removed from cache.
      */
     @Transactional
+    @CacheEvict(value = "templates", allEntries = true)
     public void deleteTemplate(UUID id) {
         NotificationTemplate template = templateRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Template", "id", id));

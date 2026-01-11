@@ -97,9 +97,9 @@ services:
   # - Consumer: Worker service reads messages and sends notifications
   # - Topic: Like a "folder" for related messages (e.g., "notifications")
   #
-  kafka:
+  kafka-1:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: notification-kafka
+    container_name: notification-kafka-1
     depends_on:
       - zookeeper                          # Kafka needs Zookeeper to be running
     ports:
@@ -107,18 +107,18 @@ services:
     environment:
       KAFKA_BROKER_ID: 1                    # Unique ID for this Kafka broker
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181  # How to find Zookeeper
-      
+
       # Listeners: How Kafka advertises itself to clients
       # PLAINTEXT = no encryption (fine for local development)
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      
-      # Topic settings
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1    # Only 1 broker, so replication = 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      
+
+      # Topic settings - now with replication
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3    # 3 brokers, so replication = 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+
       # Auto-create topics when producer sends to non-existent topic
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
@@ -126,7 +126,62 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-  
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: notification-kafka-2
+    depends_on:
+      - zookeeper
+      - kafka-1                              # Ensure kafka-1 starts first
+    ports:
+      - "9093:9093"                         # Different port for broker 2
+    environment:
+      KAFKA_BROKER_ID: 2                    # Unique ID for broker 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:29093,PLAINTEXT_HOST://localhost:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9093", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: notification-kafka-3
+    depends_on:
+      - zookeeper
+      - kafka-1
+      - kafka-2                              # Ensure previous brokers start first
+    ports:
+      - "9094:9094"                         # Different port for broker 3
+    environment:
+      KAFKA_BROKER_ID: 3                    # Unique ID for broker 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:29094,PLAINTEXT_HOST://localhost:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9094", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   # ==================== Kafka UI (Optional but helpful!) ====================
   #
   # A web interface to view Kafka topics, messages, and consumers.
@@ -138,12 +193,14 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: notification-kafka-ui
     depends_on:
-      - kafka
+      - kafka-1
+      - kafka-2
+      - kafka-3
     ports:
       - "8090:8080"                        # Access UI at localhost:8090
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:29092,kafka-2:29093,kafka-3:29094
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
 # ==================== Volumes ====================

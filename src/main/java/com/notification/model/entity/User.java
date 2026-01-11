@@ -20,6 +20,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+// JSON Annotations (for serialization)
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 // Java utilities
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -124,6 +127,8 @@ public class User {
      * 
      * fetch = FetchType.LAZY - Don't load preferences until we access them
      *   This is more efficient when we don't always need preferences
+     * 
+     * @JsonIgnore - Exclude from JSON serialization to prevent lazy loading issues
      */
     @OneToMany(
         mappedBy = "user",
@@ -131,6 +136,7 @@ public class User {
         orphanRemoval = true,
         fetch = FetchType.LAZY
     )
+    @JsonIgnore
     @Builder.Default  // Tells Lombok to use this default in the builder
     private List<UserPreference> preferences = new ArrayList<>();
     
@@ -141,12 +147,15 @@ public class User {
      * We use LAZY loading because a user might have thousands
      * of notifications, and we don't want to load them all
      * every time we load a user.
+     * 
+     * @JsonIgnore - Exclude from JSON serialization to prevent lazy loading issues
      */
     @OneToMany(
         mappedBy = "user",
         cascade = CascadeType.ALL,
         fetch = FetchType.LAZY
     )
+    @JsonIgnore
     @Builder.Default
     private List<Notification> notifications = new ArrayList<>();
     

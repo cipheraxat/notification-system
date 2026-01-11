@@ -143,6 +143,17 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         
+        <!--
+            Spring Boot Starter Cache
+            - Provides @Cacheable, @CacheEvict, @CachePut annotations
+            - Enables caching abstraction over Redis
+            - Required for our caching implementation
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        
         <!-- ==================== MESSAGE QUEUE ==================== -->
         
         <!--

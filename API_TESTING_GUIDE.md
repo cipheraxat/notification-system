@@ -14,10 +14,11 @@ A comprehensive guide to testing the Notification System API using **HTTPie** - 
 6. [Health Check Endpoints](#health-check-endpoints)
 7. [Notification Endpoints](#notification-endpoints)
 8. [Template Endpoints](#template-endpoints)
-9. [OpenAPI Documentation](#openapi-documentation)
-10. [Testing Workflows](#testing-workflows)
-11. [Error Handling](#error-handling)
-12. [Troubleshooting](#troubleshooting)
+9. [User Endpoints](#user-endpoints)
+10. [OpenAPI Documentation](#openapi-documentation)
+11. [Testing Workflows](#testing-workflows)
+12. [Error Handling](#error-handling)
+13. [Troubleshooting](#troubleshooting)
 13. [Shell Variables for Testing](#shell-variables-for-testing)
 
 ---
@@ -75,7 +76,9 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 |-----------|-------|------|---------|--------------|
 | `notification-postgres` | postgres:15 | 5432 | Primary database | `pg_isready` |
 | `notification-redis` | redis:7-alpine | 6379 | Rate limiting cache | `redis-cli ping` |
-| `notification-kafka` | confluentinc/cp-kafka:7.4.0 | 9092 | Message queue | Topic creation |
+| `notification-kafka-1` | confluentinc/cp-kafka:7.4.0 | 9092 | Message queue (Broker 1) | Topic creation |
+| `notification-kafka-2` | confluentinc/cp-kafka:7.4.0 | 9093 | Message queue (Broker 2) | Topic creation |
+| `notification-kafka-3` | confluentinc/cp-kafka:7.4.0 | 9094 | Message queue (Broker 3) | Topic creation |
 | `notification-zookeeper` | confluentinc/cp-zookeeper:7.4.0 | 2181 | Kafka coordination | ZK client |
 | `notification-kafka-ui` | provectuslabs/kafka-ui:latest | 8090 | Kafka monitoring UI | HTTP |
 
@@ -1186,6 +1189,117 @@ http DELETE :8080/api/v1/templates/660e8400-e29b-41d4-a716-446655440004
 
 ---
 
+## User Endpoints
+
+The User endpoints provide cached user lookups for testing Redis caching functionality. These endpoints demonstrate the caching implementation following Alex Xu's system design principles.
+
+### Find User by Email
+
+**Endpoint:** `GET /api/v1/users/email/{email}`
+
+**Purpose:** Retrieve user information by email address with Redis caching.
+
+**Caching:** First request hits database and caches result. Subsequent requests serve from Redis cache without database queries.
+
+```bash
+# Test with existing user
+http :8080/api/v1/users/email/john@example.com
+
+# Test with non-existent user (will throw exception, not cached)
+http :8080/api/v1/users/email/nonexistent@example.com
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "User found",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "email": "john@example.com",
+    "phone": "+1234567890",
+    "deviceToken": "device_token_123",
+    "createdAt": "2024-01-15T10:00:00Z",
+    "updatedAt": "2024-01-15T10:00:00Z"
+  },
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### Find User by Phone
+
+**Endpoint:** `GET /api/v1/users/phone/{phone}`
+
+**Purpose:** Retrieve user information by phone number with Redis caching.
+
+**Caching:** First request hits database and caches result. Subsequent requests serve from Redis cache.
+
+```bash
+# Test with existing user
+http :8080/api/v1/users/phone/+1234567890
+
+# Test with non-existent user
+http :8080/api/v1/users/phone/+9999999999
+```
+
+### Get Push-Eligible Users
+
+**Endpoint:** `GET /api/v1/users/push-eligible`
+
+**Purpose:** Retrieve all users with device tokens for push notifications.
+
+**Caching:** Caches the list of users who can receive push notifications to avoid repeated database queries.
+
+```bash
+http :8080/api/v1/users/push-eligible
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Push-eligible users retrieved",
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "email": "john@example.com",
+      "phone": "+1234567890",
+      "deviceToken": "device_token_123",
+      "createdAt": "2024-01-15T10:00:00Z",
+      "updatedAt": "2024-01-15T10:00:00Z"
+    }
+  ],
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**Cache Testing Workflow:**
+
+1. **Clear Redis cache:**
+   ```bash
+   docker exec notification-redis redis-cli FLUSHALL
+   ```
+
+2. **First request (cache miss - hits database):**
+   ```bash
+   http :8080/api/v1/users/email/john@example.com
+   ```
+
+3. **Check Redis cache:**
+   ```bash
+   docker exec notification-redis redis-cli keys "*"
+   # Should show: users::email:john@example.com
+   ```
+
+4. **Second request (cache hit - serves from Redis):**
+   ```bash
+   http :8080/api/v1/users/email/john@example.com
+   ```
+
+5. **Verify no additional database queries** by checking application logs.
+
+---
+
 ## OpenAPI Documentation
 
 ### Get OpenAPI Spec (JSON)
@@ -1485,13 +1599,13 @@ docker restart notification-kafka
 
 ```bash
 # View all topics
-docker exec notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
+docker exec notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 \
   --list
 
 # Check topic details
-docker exec notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
+docker exec notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 \
   --describe \
   --topic notifications.email
 ```

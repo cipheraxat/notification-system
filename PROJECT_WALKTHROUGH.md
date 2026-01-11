@@ -208,23 +208,25 @@ Follow this order to understand the project systematically:
 13. service/NotificationService.java        → Core business logic
 14. service/TemplateService.java            → Template handling
 15. service/RateLimiterService.java         → Rate limiting logic
+16. service/UserService.java                → User lookups with caching
 ```
 
 ### Phase 4: Understand Advanced Features (30 min)
 ```
-16. service/channel/ChannelHandler.java     → Interface pattern
-17. service/channel/EmailChannelHandler.java → Implementation
-18. service/channel/ChannelDispatcher.java  → Strategy pattern
-19. kafka/NotificationConsumer.java         → Async processing
-20. scheduler/RetryScheduler.java           → Retry mechanism
+17. service/channel/ChannelHandler.java     → Interface pattern
+18. service/channel/EmailChannelHandler.java → Implementation
+19. service/channel/ChannelDispatcher.java  → Strategy pattern
+20. kafka/NotificationConsumer.java         → Async processing
+21. scheduler/RetryScheduler.java           → Retry mechanism
+22. controller/UserController.java          → User API with caching
 ```
 
 ### Phase 5: Understand Configuration (15 min)
 ```
-21. config/KafkaConfig.java               → Kafka setup
-22. config/RedisConfig.java               → Redis setup
-23. resources/application.yml             → App settings
-24. exception/GlobalExceptionHandler.java → Error handling
+23. config/KafkaConfig.java               → Kafka setup
+24. config/RedisConfig.java               → Redis setup
+25. resources/application.yml             → App settings
+26. exception/GlobalExceptionHandler.java → Error handling
 ```
 
 ---
@@ -280,7 +282,35 @@ Located in: `src/main/java/com/notification/config/`
 
 **What it configures:**
 - RedisTemplate: How to interact with Redis
+- CacheManager: Spring Cache abstraction with @Cacheable support
+- ObjectMapper: JSON serialization with default typing for complex objects
 - Connection factory: How to connect to Redis server
+
+**Caching Configuration:**
+```java
+@Bean
+public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    objectMapper.registerModule(new JavaTimeModule());
+    objectMapper.enableDefaultTyping(ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
+    
+    GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(objectMapper);
+    
+    RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+        .serializeKeysWith(new StringRedisSerializer())
+        .serializeValuesWith(serializer)
+        .entryTtl(Duration.ofHours(1))  // 1 hour TTL
+        .disableCachingNullValues();
+        
+    return RedisCacheManager.builder(connectionFactory)
+        .cacheDefaults(config)
+        .build();
+}
+```
+
+**Supported Cache Names:**
+- `users` - User lookups (email, phone, device tokens)
+- `templates` - Notification templates
 
 #### 📄 `OpenApiConfig.java`
 **Purpose:** Sets up Swagger UI for API documentation.
@@ -583,6 +613,46 @@ public class RateLimiterService {
 }
 ```
 
+#### 📄 `UserService.java`
+
+**Purpose:** User management with Redis caching for performance.
+
+**Caching Implementation:**
+```java
+@Service
+public class UserService {
+    
+    // Cache user lookup by email
+    @Cacheable(value = "users", key = "'email:' + #email")
+    public User findByEmail(String email) {
+        return userRepository.findByEmail(email)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+    
+    // Cache user lookup by phone
+    @Cacheable(value = "users", key = "'phone:' + #phone")
+    public User findByPhone(String phone) {
+        return userRepository.findByPhone(phone)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+    
+    // Cache list of users with device tokens
+    @Cacheable(value = "users", key = "'deviceTokens'")
+    public List<User> findUsersWithDeviceTokens() {
+        return userRepository.findByDeviceTokenIsNotNull();
+    }
+}
+```
+
+**Cache Eviction:**
+```java
+// Evict cache when user data changes
+@CacheEvict(value = "users", key = "'email:' + #oldEmail")
+public void evictUserCacheByEmail(String oldEmail) {
+    // Cache entry removed
+}
+```
+
 #### Channel Handlers
 
 Located in: `src/main/java/com/notification/service/channel/`
@@ -721,6 +791,44 @@ public class NotificationController {
 | POST | `/api/v1/templates` | Create new template |
 | PUT | `/api/v1/templates/{id}` | Update template |
 | DELETE | `/api/v1/templates/{id}` | Delete template |
+
+#### 📄 `UserController.java`
+
+**Purpose:** User lookup endpoints with Redis caching for testing.
+
+**Caching Endpoints:**
+```java
+@RestController
+@RequestMapping("/api/v1/users")
+public class UserController {
+    
+    // GET /api/v1/users/email/{email}
+    @GetMapping("/email/{email}")
+    public ResponseEntity<ApiResponse<User>> getUserByEmail(@PathVariable String email) {
+        User user = userService.findByEmail(email);  // @Cacheable
+        return ResponseEntity.ok(ApiResponse.success("User found", user));
+    }
+    
+    // GET /api/v1/users/phone/{phone}
+    @GetMapping("/phone/{phone}")
+    public ResponseEntity<ApiResponse<User>> getUserByPhone(@PathVariable String phone) {
+        User user = userService.findByPhone(phone);  // @Cacheable
+        return ResponseEntity.ok(ApiResponse.success("User found", user));
+    }
+    
+    // GET /api/v1/users/push-eligible
+    @GetMapping("/push-eligible")
+    public ResponseEntity<ApiResponse<List<User>>> getPushEligibleUsers() {
+        List<User> users = userService.findUsersWithDeviceTokens();  // @Cacheable
+        return ResponseEntity.ok(ApiResponse.success("Push-eligible users retrieved", users));
+    }
+}
+```
+
+**Cache Testing:**
+- First request: Database hit, result cached
+- Subsequent requests: Cache hit, no database query
+- Failed lookups: Exception thrown, not cached
 
 ---
 
@@ -1044,7 +1152,7 @@ spring:
   
   # Kafka settings
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: localhost:9092,localhost:9093,localhost:9094
     consumer:
       group-id: notification-group
       auto-offset-reset: earliest

@@ -33,14 +33,16 @@ A comprehensive guide to managing Docker containers for the Notification System 
 
 ## Overview
 
-This project uses **5 Docker containers**:
+This project uses **7 Docker containers**:
 
 | Container | Image | Port | Purpose |
 |-----------|-------|------|---------|
 | `notification-postgres` | `postgres:15` | 5432 | Main database |
 | `notification-redis` | `redis:7-alpine` | 6379 | Caching & rate limiting |
 | `notification-zookeeper` | `confluentinc/cp-zookeeper:7.4.0` | 2181 | Kafka coordination |
-| `notification-kafka` | `confluentinc/cp-kafka:7.4.0` | 9092 | Message queue |
+| `notification-kafka-1` | `confluentinc/cp-kafka:7.4.0` | 9092 | Message queue (Broker 1) |
+| `notification-kafka-2` | `confluentinc/cp-kafka:7.4.0` | 9093 | Message queue (Broker 2) |
+| `notification-kafka-3` | `confluentinc/cp-kafka:7.4.0` | 9094 | Message queue (Broker 3) |
 | `notification-kafka-ui` | `provectuslabs/kafka-ui:latest` | 8090 | Kafka web interface |
 
 ---
@@ -95,7 +97,9 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 NAMES                    STATUS          PORTS
 notification-kafka-ui    Up 2 hours      0.0.0.0:8090->8080/tcp
-notification-kafka       Up 2 hours      0.0.0.0:9092->9092/tcp
+notification-kafka-1     Up 2 hours      0.0.0.0:9092->9092/tcp
+notification-kafka-2     Up 2 hours      0.0.0.0:9093->9093/tcp
+notification-kafka-3     Up 2 hours      0.0.0.0:9094->9094/tcp
 notification-zookeeper   Up 2 hours      0.0.0.0:2181->2181/tcp
 notification-redis       Up 2 hours      0.0.0.0:6379->6379/tcp
 notification-postgres    Up 2 hours      0.0.0.0:5432->5432/tcp
@@ -513,35 +517,35 @@ quit
 
 ---
 
-### 4. Kafka (`notification-kafka`)
+### 4. Kafka Brokers (`notification-kafka-1`, `notification-kafka-2`, `notification-kafka-3`)
 
 #### Connection Details
 | Property | Value |
 |----------|-------|
-| **Host** | localhost |
-| **Port** | 9092 |
-| **Internal Port** | kafka:29092 (for containers) |
+| **Hosts** | localhost:9092, localhost:9093, localhost:9094 |
+| **Ports** | 9092 (Broker 1), 9093 (Broker 2), 9094 (Broker 3) |
+| **Internal Ports** | kafka-1:29092, kafka-2:29093, kafka-3:29094 (for containers) |
 
 #### Topic Management
 ```bash
 # List all topics
-docker exec -it notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 --list
+docker exec -it notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 --list
 
 # Create a topic
-docker exec -it notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
+docker exec -it notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 \
   --create --topic my-topic \
-  --partitions 1 --replication-factor 1
+  --partitions 3 --replication-factor 3
 
 # Describe a topic
-docker exec -it notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
+docker exec -it notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 \
   --describe --topic notifications
 
 # Delete a topic
-docker exec -it notification-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
+docker exec -it notification-kafka-1 kafka-topics \
+  --bootstrap-server localhost:9092,localhost:9093,localhost:9094 \
   --delete --topic my-topic
 ```
 

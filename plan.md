@@ -900,8 +900,8 @@ Response: 200 OK
 │                                                                      │
 │  Kafka (Message Queue):                                              │
 │  ──────────────────────                                              │
-│  • For development: Can use Redis Streams instead                    │
-│  • For production: 1 Kafka broker (or managed service)               │
+│  • For development: 3-broker cluster with replication factor 3       │
+│  • For production: 3+ Kafka brokers (or managed service)             │
 │                                                                      │
 │  Estimated Monthly Cost (AWS/GCP):                                   │
 │  ─────────────────────────────────                                   │
@@ -1172,13 +1172,13 @@ services:
     ports:
       - "6379:6379"
 
-  # Kafka (Message Queue)
+  # Kafka (Message Queue) - 3 Broker Cluster
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
 
-  kafka:
+  kafka-1:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
       - zookeeper
@@ -1188,7 +1188,31 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
 
 volumes:
   postgres_data:
