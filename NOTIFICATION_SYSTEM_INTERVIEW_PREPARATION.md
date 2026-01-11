@@ -1811,6 +1811,47 @@ Review 10 minutes before your interview:
 
 ---
 
+## AWS Production Deployment (Multi-Country Scenario)
+
+### Global Architecture Overview
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    GLOBAL SERVICES (Single Region)              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
+│  │   Route 53      │  │   CloudFront    │  │   WAF & Shield  │   │
+│  │   (DNS)         │  │   (CDN)         │  │   (Security)     │   │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    REGIONAL SERVICES (Per Region)               │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
+│  │   Application   │  │   ElastiCache   │  │   Aurora Global  │   │
+│  │   Load Balancer │  │   (Redis)       │  │   Database       │   │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘   │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
+│  │   ECS/EKS       │  │   MSK (Kafka)   │  │   S3             │   │
+│  │   (Containers)  │  │   (Messaging)   │  │   (Storage)      │   │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### AWS Service Mapping
+
+| **Component** | **AWS Service** | **Configuration** | **Multi-Region** |
+|---------------|-----------------|-------------------|------------------|
+| **Application** | ECS Fargate / EKS | Auto-scaling groups, health checks | Regional deployment |
+| **Database** | Aurora Global Database | PostgreSQL 15, multi-master | Global write/read endpoints |
+| **Cache** | ElastiCache Global Datastore | Redis 7, cluster mode | Global replication |
+| **Message Queue** | Amazon MSK | Kafka 3.x, multi-AZ | Regional with cross-region replication |
+| **Load Balancer** | Application Load Balancer | SSL termination, WAF integration | Regional |
+| **CDN** | CloudFront | Edge locations, caching rules | Global |
+| **DNS** | Route 53 | Geo-routing, health checks | Global |
+| **Storage** | S3 | Versioning, cross-region replication | Multi-region replication |
+| **Security** | AWS WAF + Shield | Rate limiting, DDoS protection | Global |
+| **Monitoring** | CloudWatch + X-Ray | Metrics, logs, tracing | Cross-region aggregation |
+
 ## Database Schema Design
 
 ### Entity Relationship Diagram
