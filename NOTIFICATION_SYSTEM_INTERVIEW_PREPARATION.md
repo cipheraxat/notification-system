@@ -55,7 +55,7 @@ KEY BUZZWORDS INCLUDED:
 
 > **Use this when asked: "Tell me about a project you've worked on"**
 
-*"I built a multi-channel notification system following Alex Xu's system design principles. It sends notifications via Email, SMS, Push, and In-App channels.*
+*I built a multi-channel notification system following system design principles. It sends notifications via Email, SMS, Push, and In-App channels.*
 
 *The key technical highlights are:*
 - *Asynchronous processing using Kafka for decoupling and reliability*
@@ -133,18 +133,75 @@ WHEN WHITEBOARDING:
 
 ### Request Lifecycle (Step by Step)
 
-| Step | Component | Action |
-|------|-----------|--------|
-| 1 | `NotificationController` | Receives POST request, validates input |
-| 2 | `NotificationService` | Checks rate limit via Redis |
-| 3 | `TemplateService` | Processes template (if using one) |
-| 4 | `NotificationRepository` | Saves notification with PENDING status |
-| 5 | `KafkaTemplate` | Publishes notification ID to Kafka topic |
-| 6 | **API Response** | Returns 202 Accepted with notification ID |
-| 7 | `NotificationConsumer` | Picks up message from Kafka |
-| 8 | `ChannelDispatcher` | Routes to correct handler (Email/SMS/Push/In-App) |
-| 9 | `EmailChannelHandler` (etc.) | Sends via external provider (SendGrid/Twilio) |
-| 10 | `NotificationRepository` | Updates status to SENT or schedules retry |
+| Step | Component | Action | Data Flow Details |
+|------|-----------|--------|-------------------|
+| 1 | `NotificationController` | Receives POST request, validates input | **Input:** JSON request body<br>```json<br>{<br>  "userId": "550e8400-e29b-41d4-a716-446655440001",<br>  "channel": "EMAIL",<br>  "templateName": "welcome-email",<br>  "templateVariables": {"userName": "John"}<br>}<br>```<br>**Validation:** Bean Validation on `SendNotificationRequest` DTO |
+| 2 | `NotificationService` | Checks rate limit via Redis | **Rate Limit Check:** `rateLimiterService.checkAndIncrement(userId, channel)`<br>**Redis Key:** `"ratelimit:{userId}:{channel}"`<br>**Throws:** `RateLimitExceededException` if limit exceeded |
+| 3 | `TemplateService` | Processes template (if using one) | **Input:** `templateName`, `templateVariables`<br>**Processing:** Variable substitution in template content<br>**Output:** `subject`, `content` strings<br>**Example:** Template `"Welcome {{userName}}!"` → `"Welcome John!"` |
+| 4 | `NotificationRepository` | Saves notification with PENDING status | **Entity Creation:**<br>```java<br>Notification notification = Notification.builder()<br>    .user(user)<br>    .channel(request.getChannel())<br>    .priority(request.getPriority())<br>    .subject(subject)<br>    .content(content)<br>    .status(NotificationStatus.PENDING)<br>    .build();<br>```<br>**Database:** ACID transaction ensures durability |
+| 5 | `KafkaTemplate` | Publishes notification ID to Kafka topic | **Message Key:** `notification.getId().toString()`<br>**Message Value:** `notification.getId().toString()`<br>**Topic:** Channel-specific (e.g., `notifications.email`)<br>**Purpose:** Only ID sent to avoid large messages |
+| 6 | **API Response** | Returns 202 Accepted with notification ID | **Response:**<br>```json<br>{<br>  "success": true,<br>  "message": "Notification queued successfully",<br>  "data": {<br>    "id": "550e8400-e29b-41d4-a716-446655440002",<br>    "status": "PENDING"<br>  }<br>}<br>```<br>**HTTP Status:** 202 (Accepted) - async processing |
+| 7 | `NotificationConsumer` | Picks up message from Kafka | **Consumer Record:** `ConsumerRecord<String, String>`<br>**Value:** Notification ID string<br>**Processing:** Parse UUID, fetch from database<br>**Status Update:** `PENDING` → `PROCESSING` |
+| 8 | `ChannelDispatcher` | Routes to correct handler (Email/SMS/Push/In-App) | **Routing Logic:**<br>```java<br>ChannelHandler handler = handlers.get(notification.getChannel());<br>return handler.send(notification);<br>```<br>**Strategy Pattern:** O(1) lookup via HashMap |
+| 9 | `EmailChannelHandler` (etc.) | Sends via external provider (SendGrid/Twilio) | **Handler Selection:** Based on `notification.getChannel()`<br>**External API Call:** SendGrid/Twilio/Firebase/etc.<br>**Data Passed:** `user.email`, `notification.subject`, `notification.content`<br>**Return:** `true` (success) or `false` (failure) |
+| 10 | `NotificationRepository` | Updates status to SENT or schedules retry | **Success:** `status = SENT`<br>**Failure:** `status = PENDING`, `retry_count++`, `next_retry_at` set with exponential backoff |
+
+### Detailed Data Flow Example
+
+**Client Request:**
+```json
+POST /api/v1/notifications
+{
+  "userId": "550e8400-e29b-41d4-a716-446655440001",
+  "channel": "EMAIL",
+  "templateName": "welcome-email",
+  "templateVariables": {
+    "userName": "John",
+    "activationLink": "https://example.com/activate/abc123"
+  }
+}
+```
+
+**1. Controller → Service:**
+- `SendNotificationRequest` object passed to `notificationService.sendNotification(request)`
+- Contains: userId, channel, templateName, templateVariables
+
+**2. Service Processing:**
+- User lookup: `userRepository.findById(request.getUserId())`
+- Rate limit check: Redis counter increment
+- Template processing: Variables substituted in template content
+- Entity creation: `Notification` object built with processed content
+
+**3. Database Persistence:**
+```sql
+INSERT INTO notifications (id, user_id, channel, subject, content, status, created_at)
+VALUES ('uuid', 'user-uuid', 'EMAIL', 'Welcome to Our Platform', 'Hi John, ...', 'PENDING', NOW());
+```
+
+**4. Kafka Publishing:**
+- Topic: `notifications.email`
+- Key: `"550e8400-e29b-41d4-a716-446655440002"`
+- Value: `"550e8400-e29b-41d4-a716-446655440002"`
+- Purpose: Decouple API response from slow email sending
+
+**5. Consumer Processing:**
+- Kafka message received: `"550e8400-e29b-41d4-a716-446655440002"`
+- Database fetch: `notificationRepository.findById(uuid)`
+- Status update: `PENDING` → `PROCESSING`
+
+**6. Channel Dispatch:**
+- Handler lookup: `handlers.get(ChannelType.EMAIL)` → `EmailChannelHandler`
+- Method call: `emailHandler.send(notification)`
+
+**7. Email Handler Execution:**
+- User data: `notification.getUser().getEmail()`
+- Content data: `notification.getSubject()`, `notification.getContent()`
+- External API: SendGrid/Mailgun/SES integration
+- Result: Success/failure boolean
+
+**8. Final Status Update:**
+- Success: `notification.markAsSent()` → `status = SENT`
+- Failure: `notification.scheduleRetry("Delivery failed")` → `status = PENDING`, retry scheduled
 
 ---
 

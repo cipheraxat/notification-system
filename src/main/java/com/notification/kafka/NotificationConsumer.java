@@ -158,6 +158,9 @@ public class NotificationConsumer {
         
         String notificationIdStr = record.value();
         
+        // Clean the string - remove any surrounding quotes or whitespace
+        notificationIdStr = notificationIdStr.trim().replaceAll("^\"|\"$", "");
+        
         log.info("Received {} notification from Kafka: {} (topic={}, partition={}, offset={})",
             channel, notificationIdStr, record.topic(), record.partition(), record.offset());
         

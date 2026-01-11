@@ -30,14 +30,31 @@ public enum Priority {
     // ==================== Priority Levels ====================
     
     /**
-     * HIGH - Urgent notifications that need immediate delivery
+     * CRITICAL - Most urgent, time-sensitive notifications
      * 
      * Use cases:
      * - OTP codes (time-sensitive, useless if delayed)
+     * - Security alerts (account compromised, unauthorized access)
      * - Password reset links
-     * - Security alerts (login from new device)
+     * - Two-factor authentication codes
+     * - Emergency system notifications
+     * 
+     * Characteristics:
+     * - Absolute highest priority (jump all queues)
+     * - Bypasses rate limiting entirely
+     * - Minimal retry delays (15s)
+     * - Fewer retry attempts (send fast or fail fast)
+     */
+    CRITICAL(0, "Time-critical, bypass rate limits"),
+    
+    /**
+     * HIGH - Urgent notifications that need immediate delivery
+     * 
+     * Use cases:
      * - Order cancellations
-     * - Emergency notifications
+     * - Payment failures
+     * - Account suspension notices
+     * - Important account updates
      * 
      * Characteristics:
      * - Processed immediately (jump the queue)
