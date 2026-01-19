@@ -58,6 +58,9 @@ class NotificationServiceTest {
     private RateLimiterService rateLimiterService;
     
     @Mock
+    private DeduplicationService deduplicationService;
+    
+    @Mock
     private KafkaTemplate<String, String> kafkaTemplate;
     
     // @InjectMocks creates the service and injects all mocks
@@ -199,6 +202,39 @@ class NotificationServiceTest {
         assertNotNull(response);
         assertEquals(notificationId, response.getId());
         assertEquals(NotificationStatus.SENT, response.getStatus());
+    }
+    
+    @Test
+    @DisplayName("Should return duplicate response when eventId is already seen")
+    void sendNotification_WithDuplicateEventId_ReturnsDuplicateResponse() {
+        // Arrange
+        String eventId = "duplicate-event-123";
+        SendNotificationRequest request = SendNotificationRequest.builder()
+            .userId(testUserId)
+            .channel(ChannelType.EMAIL)
+            .eventId(eventId)
+            .subject("Test Subject")
+            .content("Test Content")
+            .build();
+        
+        // Mock repository and services
+        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
+        when(deduplicationService.isDuplicate(eventId)).thenReturn(true);
+        
+        // Act
+        NotificationResponse response = notificationService.sendNotification(request);
+        
+        // Assert
+        assertNotNull(response);
+        assertNull(response.getId()); // No notification created
+        assertEquals(testUserId, response.getUserId());
+        assertEquals(ChannelType.EMAIL, response.getChannel());
+        assertEquals(NotificationStatus.FAILED, response.getStatus());
+        assertEquals("Duplicate event: notification already processed", response.getErrorMessage());
+        
+        // Verify that notification was not saved and Kafka was not called
+        verify(notificationRepository, never()).save(any(Notification.class));
+        verify(kafkaTemplate, never()).send(anyString(), anyString());
     }
     
     @Test

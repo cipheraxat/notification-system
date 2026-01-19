@@ -479,7 +479,8 @@ http POST :8080/api/v1/notifications \
   channel=EMAIL \
   templateName=welcome-email \
   templateVariables:='{"userName": "John Doe"}' \
-  priority=HIGH
+  priority=HIGH \
+  eventId=user-registration-12345
 ```
 
 **Request Body Breakdown:**
@@ -491,6 +492,7 @@ http POST :8080/api/v1/notifications \
 | `templateName` | String | ⚠️ Conditional | Must exist and be active | Template to use |
 | `templateVariables` | Object | ❌ No | Keys must match template variables | Variable values |
 | `priority` | Enum | ❌ No | LOW, MEDIUM, HIGH, CRITICAL | Default: MEDIUM |
+| `eventId` | String | ❌ No | Max 255 chars, unique per event | Event identifier for deduplication |
 
 **What Happens Internally:**
 
@@ -500,6 +502,8 @@ http POST :8080/api/v1/notifications \
 
 2. Service layer processing
    └─▶ NotificationService.sendNotification()
+       ├─▶ Check deduplication (DeduplicationService.isDuplicate)
+       │   └─▶ If duplicate: return FAILED status immediately
        ├─▶ Validate user exists (UserRepository.findById)
        ├─▶ Check rate limit (RateLimiterService - Token Bucket)
        ├─▶ Load template (NotificationTemplateRepository.findByNameAndActive)
@@ -610,7 +614,8 @@ http POST :8080/api/v1/notifications \
   channel=SMS \
   templateName=otp-sms \
   templateVariables:='{"otpCode": "847293"}' \
-  priority=CRITICAL
+  priority=CRITICAL \
+  eventId=otp-request-67890
 ```
 
 **Why CRITICAL Priority?**
@@ -709,7 +714,8 @@ http POST :8080/api/v1/notifications \
   channel=IN_APP \
   subject="New Feature Available!" \
   content="Check out our new dashboard feature with enhanced analytics." \
-  priority=LOW
+  priority=LOW \
+  eventId=feature-announcement-11111
 ```
 
 **In-App Notification Characteristics:**
@@ -748,7 +754,8 @@ http POST :8080/api/v1/notifications/bulk \
   channel=EMAIL \
   templateName=order-confirmation \
   templateVariables:='{"orderId": "ORD-99999", "orderTotal": "$149.99", "userName": "Valued Customer"}' \
-  priority=HIGH
+  priority=HIGH \
+  eventId=bulk-order-confirmation-99999
 ```
 
 **Request Body Breakdown:**
@@ -760,10 +767,13 @@ http POST :8080/api/v1/notifications/bulk \
 | `templateName` | String | ⚠️ Conditional | - | Template to use |
 | `templateVariables` | Object | ❌ No | - | Same params for all users |
 | `priority` | Enum | ❌ No | - | Default: MEDIUM |
+| `eventId` | String | ❌ No | 255 chars | Event identifier for deduplication |
 
 **What Happens Internally:**
 ```
 For each userId in userIds:
+  ├─▶ Check deduplication (DeduplicationService.isDuplicate)
+  │   └─▶ If duplicate: skip user, increment failed count
   ├─▶ Validate user exists
   ├─▶ Check rate limit
   ├─▶ Create individual notification
@@ -1699,6 +1709,183 @@ http POST $API_URL/api/v1/notifications \
 | Create template | `http POST :8080/api/v1/templates name=... channel=... bodyTemplate="..."` |
 | Update template | `http PUT :8080/api/v1/templates/{id} name=... channel=... bodyTemplate="..."` |
 | Delete template | `http DELETE :8080/api/v1/templates/{id}` |
+
+---
+
+## Deduplication Testing
+
+The notification system implements event-level deduplication to prevent duplicate notifications for the same event. This feature uses Redis to track event IDs with configurable TTL (Time-To-Live).
+
+### Deduplication Configuration
+
+**Default Settings:**
+- **TTL:** 24 hours (86400 seconds)
+- **Redis Key Pattern:** `dedupe:event:{eventId}`
+- **Behavior:** Same eventId within TTL window returns FAILED status
+
+**Configuration Location:** `application.yml`
+```yaml
+app:
+  deduplication:
+    ttl-seconds: 86400  # 24 hours
+    enabled: true
+```
+
+### Testing Deduplication
+
+#### 1. Send First Notification with eventId
+
+```bash
+# First request - should succeed
+http POST :8080/api/v1/notifications \
+  userId=550e8400-e29b-41d4-a716-446655440001 \
+  channel=EMAIL \
+  templateName=welcome-email \
+  templateVariables:='{"userName": "John Doe"}' \
+  eventId=user-registration-12345 \
+  priority=HIGH
+```
+
+**Expected Response (200 OK):**
+```json
+{
+    "success": true,
+    "message": "Notification queued successfully",
+    "data": {
+        "id": "c57aaec7-80a4-4948-84b8-6d9582737410",
+        "status": "PENDING"
+    }
+}
+```
+
+#### 2. Send Duplicate Notification (Same eventId)
+
+```bash
+# Second request with same eventId - should fail
+http POST :8080/api/v1/notifications \
+  userId=550e8400-e29b-41d4-a716-446655440001 \
+  channel=EMAIL \
+  templateName=welcome-email \
+  templateVariables:='{"userName": "John Doe"}' \
+  eventId=user-registration-12345 \
+  priority=HIGH
+```
+
+**Expected Response (200 OK with FAILED status):**
+```json
+{
+    "success": true,
+    "message": "Notification failed: Duplicate event detected",
+    "data": {
+        "id": null,
+        "userId": "550e8400-e29b-41d4-a716-446655440001",
+        "channel": "EMAIL",
+        "priority": "HIGH",
+        "status": "FAILED",
+        "errorMessage": "Duplicate event: user-registration-12345"
+    }
+}
+```
+
+#### 3. Send Notification with Different eventId
+
+```bash
+# Third request with different eventId - should succeed
+http POST :8080/api/v1/notifications \
+  userId=550e8400-e29b-41d4-a716-446655440001 \
+  channel=EMAIL \
+  templateName=welcome-email \
+  templateVariables:='{"userName": "John Doe"}' \
+  eventId=user-login-67890 \
+  priority=HIGH
+```
+
+**Expected Response (200 OK):**
+```json
+{
+    "success": true,
+    "message": "Notification queued successfully",
+    "data": {
+        "id": "d67bbfc8-90b5-5959-c5c9-7e9693748521",
+        "status": "PENDING"
+    }
+}
+```
+
+### Verifying Deduplication in Redis
+
+```bash
+# Connect to Redis
+docker exec -it notification-redis redis-cli
+
+# Check deduplication keys
+KEYS dedupe:event:*
+
+# View specific event key
+GET dedupe:event:user-registration-12345
+
+# Check TTL
+TTL dedupe:event:user-registration-12345
+
+# Expected: Returns remaining seconds until expiration
+```
+
+### Testing Bulk Deduplication
+
+```bash
+# Send bulk notification with eventId
+http POST :8080/api/v1/notifications/bulk \
+  userIds:='["550e8400-e29b-41d4-a716-446655440001", "550e8400-e29b-41d4-a716-446655440002"]' \
+  channel=EMAIL \
+  templateName=order-confirmation \
+  templateVariables:='{"orderId": "ORD-99999"}' \
+  eventId=bulk-order-confirmation-99999 \
+  priority=HIGH
+```
+
+**Expected Response:**
+```json
+{
+    "success": true,
+    "message": "Bulk notifications queued",
+    "data": {
+        "totalRequested": 2,
+        "successCount": 2,
+        "failedCount": 0,
+        "notificationIds": ["uuid-1", "uuid-2"]
+    }
+}
+```
+
+**Retry same bulk request (should fail):**
+```json
+{
+    "success": true,
+    "message": "Bulk notifications queued",
+    "data": {
+        "totalRequested": 2,
+        "successCount": 0,
+        "failedCount": 2,
+        "notificationIds": [],
+        "failedUserIds": ["550e8400-e29b-41d4-a716-446655440001", "550e8400-e29b-41d4-a716-446655440002"]
+    }
+}
+```
+
+### Deduplication Best Practices
+
+1. **Use Descriptive eventIds:** Include context like `user-{userId}-registration` or `order-{orderId}-confirmation`
+
+2. **TTL Considerations:** 
+   - Short TTL (minutes) for OTP codes
+   - Medium TTL (hours) for user actions
+   - Long TTL (days) for business events
+
+3. **Idempotent Operations:** Use eventId for retry-safe operations
+
+4. **Testing:** Always test deduplication behavior in staging environments
+
+5. **Monitoring:** Monitor Redis memory usage and deduplication hit rates
 
 ---
 

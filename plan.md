@@ -49,6 +49,7 @@ A notification system sends alerts/messages to users through different channels:
 | Rate limiting | Prevent spam | Max 5 SMS per hour per user |
 | Retry failed sends | Don't lose notifications | Retry email if SendGrid is down |
 | Track status | Know if notification was delivered | "Email sent at 10:30 AM" |
+| Event deduplication | Prevent duplicate notifications | Same event ID sent twice = only one notification |
 
 ### 1.3 Non-Functional Requirements
 
@@ -358,6 +359,53 @@ We will NOT implement these (but mention them for awareness):
 │  ├── Marketing team can edit templates                               │
 │  ├── Easy to add new languages                                       │
 │  └── Consistent messaging across the app                             │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.4 Event Deduplication (Prevent Duplicate Notifications)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   EVENT DEDUPLICATION MECHANISM                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Problem: Distributed systems can create duplicate notifications     │
+│  ────────                                                            │
+│  - Network retries send same request twice                           │
+│  - Client bugs send duplicate events                                 │
+│  - Kafka at-least-once delivery                                      │
+│  - Load balancers route to different instances                       │
+│                                                                      │
+│  Solution: Event-Level Deduplication                                 │
+│  ─────────                                                            │
+│  Clients provide unique eventId in requests:                         │
+│                                                                      │
+│  POST /api/v1/notifications                                          │
+│  {                                                                   │
+│    "userId": "user-123",                                             │
+│    "channel": "EMAIL",                                               │
+│    "eventId": "order-confirmation-456",                              │
+│    "subject": "Order Confirmed",                                     │
+│    "content": "Your order is confirmed!"                             │
+│  }                                                                   │
+│                                                                      │
+│  System checks: Is "order-confirmation-456" seen before?             │
+│  ├── If YES → Discard, return duplicate error                        │
+│  └── If NO → Process normally, mark eventId as seen                  │
+│                                                                      │
+│  Redis Storage:                                                       │
+│  ─────────────                                                       │
+│  Key: "event:order-confirmation-456"                                 │
+│  Value: "1" (just a marker)                                          │
+│  TTL: 24 hours (configurable)                                        │
+│                                                                      │
+│  Benefits:                                                           │
+│  ├── Idempotent API calls                                            │
+│  ├── Prevents duplicate notifications                                 │
+│  ├── Works across multiple app instances                             │
+│  ├── Fast Redis lookups (O(1))                                       │
+│  └── Automatic cleanup (TTL prevents memory bloat)                   │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```

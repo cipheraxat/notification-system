@@ -223,3 +223,7 @@ notification:
     max-attempts: 3                      # Maximum retry attempts
     initial-delay-seconds: 60            # First retry after 1 minute
     multiplier: 5                        # Each retry waits 5x longer
+  
+  # Deduplication configuration
+  dedupe:
+    ttl-seconds: 86400                   # Keep event IDs for 24 hours (86400 seconds)

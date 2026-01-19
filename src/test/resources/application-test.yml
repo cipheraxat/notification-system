@@ -50,6 +50,8 @@ notification:
   retry:
     check-interval-ms: 9999999  # Effectively disable
     stuck-check-interval-ms: 9999999
+  dedupe:
+    ttl-seconds: 3600  # Shorter TTL for tests (1 hour)
   kafka:
     topic: test-notifications
 

@@ -60,6 +60,7 @@ public class NotificationService {
     private final UserRepository userRepository;
     private final TemplateService templateService;
     private final RateLimiterService rateLimiterService;
+    private final DeduplicationService deduplicationService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     
     // Channel-specific Kafka topics (Alex Xu's design pattern)
@@ -90,11 +91,13 @@ public class NotificationService {
             UserRepository userRepository,
             TemplateService templateService,
             RateLimiterService rateLimiterService,
+            DeduplicationService deduplicationService,
             KafkaTemplate<String, String> kafkaTemplate) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
         this.templateService = templateService;
         this.rateLimiterService = rateLimiterService;
+        this.deduplicationService = deduplicationService;
         this.kafkaTemplate = kafkaTemplate;
     }
     
@@ -123,7 +126,23 @@ public class NotificationService {
         User user = userRepository.findById(request.getUserId())
             .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getUserId()));
         
-        // Step 2: Check rate limit (throws exception if exceeded)
+        // Step 2: Check for duplicates (if eventId provided)
+        if (request.getEventId() != null && !request.getEventId().isBlank()) {
+            if (deduplicationService.isDuplicate(request.getEventId())) {
+                log.info("Duplicate notification event detected: {}. Discarding.", request.getEventId());
+                // Return a response indicating the notification was not sent due to deduplication
+                return NotificationResponse.builder()
+                    .id(null) // No notification created
+                    .userId(user.getId())
+                    .channel(request.getChannel())
+                    .priority(request.getPriority())
+                    .status(NotificationStatus.FAILED)
+                    .errorMessage("Duplicate event: notification already processed")
+                    .build();
+            }
+        }
+        
+        // Step 3: Check rate limit (throws exception if exceeded)
         rateLimiterService.checkAndIncrement(user.getId(), request.getChannel());
         
         // Step 3: Get content (from template or direct)

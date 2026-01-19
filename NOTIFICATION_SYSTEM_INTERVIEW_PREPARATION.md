@@ -994,19 +994,35 @@ This gives **at-least-once delivery**. We might process duplicates, but never lo
 **Q13: How do you handle duplicate messages?**
 
 **Answer:**
-"Kafka provides at-least-once delivery, so duplicates can happen. I handle this with:
+"I implemented a two-layer deduplication strategy:
 
-1. **Idempotent processing:**
-   Before processing, I check: `if (notification.getStatus() != PENDING) { skip; }`
-   If already SENT, I skip it.
+**1. Event-Level Deduplication (Prevention):**
+   Clients can provide an `eventId` in notification requests. Before creating any notification, I check:
+   ```java
+   if (request.getEventId() != null && deduplicationService.isDuplicate(request.getEventId())) {
+       return NotificationResponse.builder()
+           .status(FAILED)
+           .errorMessage("Duplicate event: notification already processed")
+           .build();
+   }
+   ```
+   - **Redis Storage:** Event IDs stored with 24-hour TTL using keys like `event:{eventId}`
+   - **Atomic Check:** Uses Redis `SET NX` semantics to prevent race conditions
+   - **Distributed Safe:** Works across multiple application instances
 
-2. **Database as source of truth:**
-   The Kafka message only contains the notification ID. I always fetch current state from PostgreSQL before processing.
+**2. Processing-Level Deduplication (Recovery):**
+   For Kafka message duplicates, I check status before processing:
+   ```java
+   if (notification.getStatus() != PENDING) {
+       log.info("Notification {} already processed", notificationId);
+       return; // Skip duplicate processing
+   }
+   ```
 
-3. **Unique constraints:**
-   If I tried to insert a duplicate, the database would reject it.
+**3. Database-Level Deduplication:**
+   PostgreSQL constraints prevent duplicate data insertion.
 
-This makes my consumer idempotent - processing the same message twice has no additional effect."
+This gives me **exactly-once delivery** at the event level and **at-least-once with deduplication** at the processing level."
 
 ---
 

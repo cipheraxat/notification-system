@@ -613,6 +613,64 @@ public class RateLimiterService {
 }
 ```
 
+#### 📄 `DeduplicationService.java`
+
+**Purpose:** Prevent duplicate notifications by tracking event IDs.
+
+**How It Works:**
+```java
+@Service
+public class DeduplicationService {
+    
+    // Check if event has been seen before
+    public boolean isDuplicate(String eventId) {
+        if (eventId == null) return false;
+        
+        String key = "event:" + eventId;
+        Boolean exists = redis.hasKey(key);
+        
+        if (Boolean.TRUE.equals(exists)) {
+            log.info("Duplicate event detected: {}", eventId);
+            return true;  // Duplicate found!
+        }
+        
+        // Mark as seen with TTL
+        redis.opsForValue().set(key, "1", Duration.ofSeconds(ttlSeconds));
+        return false;  // New event
+    }
+}
+```
+
+**Key Features:**
+- **Redis Storage**: Event IDs stored with configurable TTL (24 hours default)
+- **Atomic Operations**: Thread-safe duplicate detection
+- **Automatic Cleanup**: Old event IDs expire automatically
+- **Optional Usage**: `eventId` field is optional in requests
+- **Fast Lookups**: O(1) Redis operations
+
+**Integration with NotificationService:**
+```java
+public NotificationResponse sendNotification(SendNotificationRequest request) {
+    // Check for duplicates BEFORE processing
+    if (request.getEventId() != null && 
+        deduplicationService.isDuplicate(request.getEventId())) {
+        
+        return NotificationResponse.builder()
+            .status(FAILED)
+            .errorMessage("Duplicate event: notification already processed")
+            .build();
+    }
+    
+    // Continue with normal processing...
+}
+```
+
+**Why This Matters:**
+- **Distributed Safety**: Prevents duplicates across multiple app instances
+- **Idempotent API**: Same event ID sent multiple times = only one notification
+- **Network Resilience**: Handles retries and network failures gracefully
+- **Performance**: Redis provides fast lookups without database overhead
+
 #### 📄 `UserService.java`
 
 **Purpose:** User management with Redis caching for performance.

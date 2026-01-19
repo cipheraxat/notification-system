@@ -38,6 +38,49 @@ POST /api/v1/notifications
 
 ---
 
+## 1.5 Event-Level Deduplication System
+
+### Implementation Overview
+
+We implemented a Redis-based deduplication mechanism to prevent duplicate notifications for the same business event, ensuring idempotent notification delivery.
+
+**Key Components:**
+- **DeduplicationService**: Redis-backed duplicate detection
+- **eventId Parameter**: Optional field in SendNotificationRequest
+- **TTL-based Expiration**: Configurable Redis key expiration (default: 24 hours)
+
+**Processing Flow:**
+```
+Client Request with eventId
+       ↓
+Deduplication Check (Redis SET NX)
+       ↓
+├── Duplicate Found → Return FAILED status
+└── New Event → Continue processing → Save to DB → Publish to Kafka
+```
+
+**Redis Operations:**
+```java
+// Check and set with TTL
+Boolean isNew = redisTemplate.opsForValue()
+    .setIfAbsent("dedupe:event:" + eventId, "1", 
+                 Duration.ofSeconds(ttlSeconds));
+```
+
+**Benefits:**
+- **Idempotent APIs**: Safe retry of failed requests
+- **Business Logic Protection**: Prevents duplicate emails/SMS for same event
+- **Configurable TTL**: Different expiration windows per use case
+- **Memory Efficient**: Automatic cleanup via Redis TTL
+
+**Use Cases:**
+- User registration confirmations
+- Order status updates
+- OTP code requests
+- Password reset emails
+
+---
+
 ## 2. Kafka Configuration Deep Dive
 
 ### Configuration Locations

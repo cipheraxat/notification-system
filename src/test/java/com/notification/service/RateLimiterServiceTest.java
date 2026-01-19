@@ -51,13 +51,15 @@ class RateLimiterServiceTest {
         ReflectionTestUtils.setField(rateLimiterService, "pushLimit", 20);
         ReflectionTestUtils.setField(rateLimiterService, "inAppLimit", 100);
         
-        // Mock Redis operations
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        // Note: opsForValue() stubbing is done in individual tests that need it
     }
     
     @Test
     @DisplayName("Should allow notification when under limit")
     void checkAndIncrement_UnderLimit_ReturnsTrue() {
+        // Mock Redis operations
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        
         // Arrange - user has sent 5 emails, limit is 10
         when(valueOperations.get(anyString())).thenReturn("5");
         when(valueOperations.increment(anyString())).thenReturn(6L);
@@ -73,6 +75,9 @@ class RateLimiterServiceTest {
     @Test
     @DisplayName("Should throw exception when limit exceeded")
     void checkAndIncrement_LimitExceeded_ThrowsException() {
+        // Mock Redis operations
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        
         // Arrange - user has sent 10 emails, limit is 10
         when(valueOperations.get(anyString())).thenReturn("10");
         when(redisTemplate.getExpire(anyString(), any())).thenReturn(1800L); // 30 min TTL
@@ -93,6 +98,9 @@ class RateLimiterServiceTest {
     @Test
     @DisplayName("Should return remaining quota correctly")
     void getRemainingQuota_ReturnsCorrectCount() {
+        // Mock Redis operations
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        
         // Arrange - user has sent 3 emails, limit is 10
         when(valueOperations.get(anyString())).thenReturn("3");
         
@@ -106,6 +114,9 @@ class RateLimiterServiceTest {
     @Test
     @DisplayName("Should return full quota for new user")
     void getRemainingQuota_NewUser_ReturnsFullQuota() {
+        // Mock Redis operations
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        
         // Arrange - user has no Redis entry (new user)
         when(valueOperations.get(anyString())).thenReturn(null);
         
@@ -119,6 +130,9 @@ class RateLimiterServiceTest {
     @Test
     @DisplayName("Should detect rate limited user")
     void isRateLimited_AtLimit_ReturnsTrue() {
+        // Mock Redis operations
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        
         // Arrange - user at limit
         when(valueOperations.get(anyString())).thenReturn("10");
         
