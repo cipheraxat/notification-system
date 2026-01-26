@@ -207,6 +207,341 @@ VALUES ('uuid', 'user-uuid', 'EMAIL', 'Welcome to Our Platform', 'Hi John, ...',
 
 ---
 
+## End-to-End Data Lifecycle Deep Dive
+
+### **Complete Data Transformation Flow**
+
+**1. Request DTO → Entity Transformation:**
+```java
+// Input: SendNotificationRequest (JSON)
+{
+  "userId": "550e8400-e29b-41d4-a716-446655440001",
+  "channel": "EMAIL",
+  "templateName": "welcome-email",
+  "templateVariables": {"userName": "John"},
+  "priority": "HIGH"
+}
+
+// Transformation in NotificationService.sendNotification():
+User user = userRepository.findById(request.getUserId()); // DB lookup
+
+String subject = templateService.processTemplate(request.getTemplateName(),
+    request.getTemplateVariables()).getSubject(); // Template processing
+
+// Output: Notification Entity
+Notification notification = Notification.builder()
+    .id(UUID.randomUUID()) // Generated
+    .user(user) // Foreign key relationship
+    .channel(ChannelType.EMAIL) // Enum conversion
+    .priority(Priority.HIGH) // Enum conversion
+    .subject(subject) // Processed from template
+    .content(content) // Processed from template
+    .status(NotificationStatus.PENDING) // Initial status
+    .retryCount(0) // Initial retry count
+    .maxRetries(3) // Configurable
+    .createdAt(OffsetDateTime.now()) // Timestamp
+    .build();
+```
+
+**2. Entity → Database Record:**
+```sql
+-- PostgreSQL INSERT (via JPA/Hibernate)
+INSERT INTO notifications (
+    id, user_id, channel, priority, subject, content,
+    status, retry_count, max_retries, created_at
+) VALUES (
+    '550e8400-e29b-41d4-a716-446655440002',
+    '550e8400-e29b-41d4-a716-446655440001',
+    'EMAIL', 'HIGH',
+    'Welcome to Our Platform, John!',
+    'Hi John,\n\nThank you for joining...',
+    'PENDING', 0, 3, '2024-01-27T10:30:00Z'
+);
+```
+
+**3. Entity → Kafka Message:**
+```java
+// Only ID sent to Kafka (small message, decoupling)
+String messageKey = notification.getId().toString();
+String messageValue = notification.getId().toString();
+String topic = "notifications.email"; // Channel-specific
+
+kafkaTemplate.send(topic, messageKey, messageValue);
+```
+
+**4. Kafka Message → Consumer Processing:**
+```java
+// Consumer receives minimal message
+ConsumerRecord<String, String> record = ...;
+String notificationIdStr = record.value(); // "550e8400-e29b-41d4-a716-446655440002"
+
+// Fetch full entity from database
+UUID notificationId = UUID.fromString(notificationIdStr);
+Notification notification = notificationRepository.findById(notificationId)
+    .orElseThrow(() -> new RuntimeException("Notification not found"));
+```
+
+**5. Entity → Channel Handler Data:**
+```java
+// EmailChannelHandler.send()
+String recipientEmail = notification.getUser().getEmail(); // "john@example.com"
+String subject = notification.getSubject(); // "Welcome to Our Platform, John!"
+String body = notification.getContent(); // Full processed content
+
+// External API call (SendGrid example)
+SendGrid sg = new SendGrid(apiKey);
+Email from = new Email("noreply@company.com");
+Email to = new Email(recipientEmail);
+Content content = new Content("text/html", body);
+Mail mail = new Mail(from, subject, to, content);
+```
+
+**6. Status Updates → Database:**
+```java
+// Success path
+notification.setStatus(NotificationStatus.SENT);
+notification.setSentAt(OffsetDateTime.now());
+notificationRepository.save(notification);
+
+// Failure path
+notification.setRetryCount(notification.getRetryCount() + 1);
+notification.setNextRetryAt(OffsetDateTime.now().plusMinutes(
+    (long) Math.pow(2, notification.getRetryCount()))); // Exponential backoff
+notification.setErrorMessage("SMTP connection failed");
+notificationRepository.save(notification);
+```
+
+### **Error Handling & Failure Scenarios**
+
+**Scenario 1: Rate Limit Exceeded**
+```
+Client Request → Controller → Service.checkRateLimit()
+    ↓
+RateLimitExceededException thrown
+    ↓
+GlobalExceptionHandler catches → 429 Too Many Requests
+    ↓
+Response: {"error": "Rate limit exceeded", "retryAfter": "3600"}
+```
+**Data State:** No notification record created, no Kafka message sent
+
+**Scenario 2: Template Not Found**
+```
+Service.processTemplate() → TemplateNotFoundException
+    ↓
+Wrapped in NotificationException
+    ↓
+GlobalExceptionHandler → 400 Bad Request
+```
+**Data State:** No notification record created
+
+**Scenario 3: Kafka Publishing Failure**
+```
+kafkaTemplate.send() throws exception
+    ↓
+Logged as error, but transaction continues
+    ↓
+Notification saved to DB with PENDING status
+    ↓
+RetryScheduler will pick it up later
+```
+**Data State:** Notification exists in DB, will be retried
+
+**Scenario 4: Channel Handler Failure**
+```
+EmailChannelHandler.send() returns false
+    ↓
+Consumer calls notification.scheduleRetry()
+    ↓
+Status: PENDING, retry_count++, next_retry_at set
+    ↓
+Kafka message acknowledged (prevents infinite retry)
+```
+**Data State:** Notification scheduled for retry with exponential backoff
+
+**Scenario 5: Database Connection Failure**
+```
+notificationRepository.save() throws exception
+    ↓
+@Transactional rolls back entire operation
+    ↓
+No notification record created
+    ↓
+API returns 500 Internal Server Error
+```
+**Data State:** Consistent state maintained via ACID transactions
+
+### **Retry Mechanism Deep Dive**
+
+**Exponential Backoff Schedule:**
+```java
+// RetryScheduler.processRetries()
+List<Notification> readyNotifications = notificationRepository
+    .findReadyForProcessing(OffsetDateTime.now());
+
+// For each failed notification:
+int retryCount = notification.getRetryCount();
+Duration backoff = Duration.ofMinutes((long) Math.pow(2, retryCount));
+
+// retryCount=0: 1 minute, retryCount=1: 2 minutes, retryCount=2: 4 minutes
+notification.setNextRetryAt(OffsetDateTime.now().plus(backoff));
+```
+
+**Retry State Machine:**
+```
+PENDING → PROCESSING → SENT (success)
+    ↓           ↓
+   FAIL       FAIL → PENDING (retry scheduled)
+                      ↓
+                   Max retries exceeded → FAILED
+```
+
+**Dead Letter Queue Pattern:**
+```java
+// After maxRetries exceeded
+if (notification.getRetryCount() >= notification.getMaxRetries()) {
+    notification.setStatus(NotificationStatus.FAILED);
+    notification.setErrorMessage("Max retries exceeded");
+    // Could publish to dead letter topic for manual review
+}
+```
+
+### **Data Consistency & Concurrency**
+
+**Optimistic Locking (Version Fields):**
+```java
+// Notification entity
+@Version
+private Long version; // Hibernate increments on update
+
+// Prevents concurrent modifications
+notificationRepository.save(notification); // Throws exception if version mismatch
+```
+
+**Idempotency for Duplicate Prevention:**
+```java
+// DeduplicationService
+public boolean isDuplicate(String eventId) {
+    String key = "dedup:" + eventId;
+    return redisTemplate.opsForValue().setIfAbsent(key, "1",
+        Duration.ofHours(24)); // 24-hour deduplication window
+}
+```
+
+**Transactional Boundaries:**
+```java
+@Transactional
+public NotificationResponse sendNotification(SendNotificationRequest request) {
+    // User lookup, rate limiting, template processing
+    // ALL succeed or ALL fail together
+    Notification saved = notificationRepository.save(notification);
+    
+    // Kafka publish (non-transactional)
+    sendToKafka(saved);
+    
+    return NotificationResponse.from(saved);
+}
+```
+
+### **Monitoring & Observability Data Flow**
+
+**Metrics Collection:**
+```java
+// NotificationService
+@Timed(value = "notification.send", histogram = true)
+public NotificationResponse sendNotification(SendNotificationRequest request) {
+    // Implementation
+}
+
+// Custom metrics
+meterRegistry.counter("notification.sent", "channel", channel.name()).increment();
+meterRegistry.timer("notification.delivery.time", "channel", channel.name())
+    .record(() -> channelHandler.send(notification));
+```
+
+**Logging Data Points:**
+```java
+// Structured logging with MDC
+MDC.put("notificationId", notification.getId().toString());
+MDC.put("userId", notification.getUser().getId().toString());
+MDC.put("channel", notification.getChannel().name());
+
+log.info("Processing notification for delivery");
+```
+
+**Health Check Data:**
+```java
+// Actuator endpoint data
+@Component
+public class NotificationHealthIndicator implements HealthIndicator {
+    public Health health() {
+        long pendingCount = notificationRepository.countByStatus(PENDING);
+        if (pendingCount > 10000) { // Threshold
+            return Health.down()
+                .withDetail("pendingNotifications", pendingCount)
+                .build();
+        }
+        return Health.up().build();
+    }
+}
+```
+
+### **Data Retention & Cleanup**
+
+**Notification Archival:**
+```java
+// Scheduled job for old notifications
+@Scheduled(cron = "0 0 2 * * ?") // Daily at 2 AM
+@Transactional
+public void archiveOldNotifications() {
+    OffsetDateTime cutoff = OffsetDateTime.now().minusMonths(6);
+    List<Notification> oldNotifications = notificationRepository
+        .findByCreatedAtBeforeAndStatusIn(cutoff, 
+            List.of(SENT, FAILED));
+    
+    // Move to archive table or delete
+    notificationRepository.deleteAll(oldNotifications);
+}
+```
+
+**Redis Key Expiration:**
+```java
+// Rate limiting keys auto-expire
+redisTemplate.expire(rateLimitKey, Duration.ofHours(1));
+
+// Cache keys have TTL
+@Cacheable(value = "users", key = "'email:' + #email", 
+           unless = "#result == null")
+public User findByEmail(String email) {
+    return userRepository.findByEmail(email);
+}
+```
+
+### **Edge Cases & Data Validation**
+
+**Invalid User Scenarios:**
+- User deleted between API call and consumer processing
+- User email/phone changed during processing
+- User preferences disable channel during processing
+
+**Template Processing Edge Cases:**
+- Missing template variables
+- Malformed template syntax
+- Template channel mismatch
+
+**Concurrent Processing:**
+- Multiple consumers processing same notification
+- Rate limit counters updated simultaneously
+- Template cache invalidation during updates
+
+**Network & External Service Failures:**
+- Kafka broker unavailable
+- Email provider rate limited
+- Database connection pool exhausted
+- Redis cluster failover
+
+---
+
 ## Component Deep Dives
 
 <!--
