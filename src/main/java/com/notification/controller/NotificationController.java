@@ -21,6 +21,7 @@ import com.notification.dto.response.BulkNotificationResponse;
 import com.notification.dto.response.NotificationResponse;
 import com.notification.dto.response.PagedResponse;
 import com.notification.model.enums.ChannelType;
+import com.notification.model.enums.NotificationStatus;
 import com.notification.service.NotificationService;
 
 // OpenAPI annotations for Swagger documentation
@@ -118,6 +119,46 @@ public class NotificationController {
         return ResponseEntity
             .status(HttpStatus.CREATED)
             .body(ApiResponse.success("Bulk notification processed", response));
+    }
+    
+    // ==================== List Notifications ====================
+    
+    /**
+     * Get notifications with optional filters.
+     * 
+     * Query parameters:
+     * - status: Filter by notification status (PENDING, PROCESSING, etc.)
+     * - channel: Filter by channel type (EMAIL, SMS, etc.)
+     * - size: Page size (default 20)
+     * - page: Page number (default 0)
+     */
+    @GetMapping
+    @Operation(
+        summary = "List notifications",
+        description = "Get notifications with optional status and channel filters"
+    )
+    public ResponseEntity<ApiResponse<PagedResponse<NotificationResponse>>> getNotifications(
+            @RequestParam(required = false) NotificationStatus status,
+            @RequestParam(required = false) ChannelType channel,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "0") int page) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        PagedResponse<NotificationResponse> response;
+        
+        if (status != null && channel != null) {
+            response = notificationService.getNotificationsByStatusAndChannel(status, channel, pageable);
+        } else if (status != null) {
+            response = notificationService.getNotificationsByStatus(status, pageable);
+        } else if (channel != null) {
+            // For now, just return empty if only channel
+            response = PagedResponse.empty();
+        } else {
+            // For now, return empty for unfiltered list (security consideration)
+            response = PagedResponse.empty();
+        }
+        
+        return ResponseEntity.ok(ApiResponse.success("Notifications retrieved", response));
     }
     
     // ==================== Get Notification ====================

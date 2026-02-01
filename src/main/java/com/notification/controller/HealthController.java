@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,10 +41,10 @@ public class HealthController {
     private final DataSource dataSource;
     private final StringRedisTemplate redisTemplate;
     private final KafkaTemplate<String, String> kafkaTemplate;
-    
+
     @Value("${spring.application.name:notification-system}")
     private String applicationName;
-    
+
     public HealthController(
             DataSource dataSource,
             StringRedisTemplate redisTemplate,
@@ -52,10 +53,10 @@ public class HealthController {
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
     }
-    
+
     /**
      * Simple health check - just returns OK.
-     * 
+     *
      * Use this for basic liveness probes.
      */
     @GetMapping
@@ -66,10 +67,10 @@ public class HealthController {
     public ResponseEntity<ApiResponse<String>> health() {
         return ResponseEntity.ok(ApiResponse.success("Service is healthy", "OK"));
     }
-    
+
     /**
      * Detailed health check with dependency status.
-     * 
+     *
      * Checks:
      * - Database connection
      * - Redis connection
@@ -84,19 +85,19 @@ public class HealthController {
         Map<String, Object> health = new HashMap<>();
         health.put("service", applicationName);
         health.put("status", "UP");
-        
+
         // Check each dependency
         Map<String, Object> dependencies = new HashMap<>();
-        
+
         // Database check
         dependencies.put("database", checkDatabase());
-        
+
         // Redis check
         dependencies.put("redis", checkRedis());
-        
+
         // Kafka check (basic check only)
         dependencies.put("kafka", checkKafka());
-        
+
         health.put("dependencies", dependencies);
         
         // Overall status is DOWN if any dependency is down

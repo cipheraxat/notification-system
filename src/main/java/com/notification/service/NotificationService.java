@@ -333,6 +333,37 @@ public class NotificationService {
     }
     
     /**
+     * Get notifications by status and channel (for admin/monitoring).
+     * 
+     * Used to check queue status for specific channels.
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<NotificationResponse> getNotificationsByStatusAndChannel(
+            NotificationStatus status, 
+            ChannelType channel, 
+            Pageable pageable) {
+        
+        Page<Notification> page = notificationRepository
+            .findByStatusAndChannelOrderByCreatedAtDesc(status, channel, pageable);
+        
+        return PagedResponse.from(page, NotificationResponse::from);
+    }
+    
+    /**
+     * Get notifications by status (for admin/monitoring).
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<NotificationResponse> getNotificationsByStatus(
+            NotificationStatus status, 
+            Pageable pageable) {
+        
+        Page<Notification> page = notificationRepository
+            .findByStatusOrderByCreatedAtDesc(status, pageable);
+        
+        return PagedResponse.from(page, NotificationResponse::from);
+    }
+    
+    /**
      * Get unread count for a user (in-app notifications).
      */
     @Transactional(readOnly = true)

@@ -70,6 +70,25 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     );
     
     /**
+     * Find notifications by status and channel (for admin/monitoring).
+     * 
+     * Used to check queue status for specific channels.
+     */
+    Page<Notification> findByStatusAndChannelOrderByCreatedAtDesc(
+        NotificationStatus status, 
+        ChannelType channel, 
+        Pageable pageable
+    );
+    
+    /**
+     * Find notifications by status (for admin/monitoring).
+     */
+    Page<Notification> findByStatusOrderByCreatedAtDesc(
+        NotificationStatus status, 
+        Pageable pageable
+    );
+    
+    /**
      * Count unread notifications for a user (in-app only).
      * 
      * Used for showing the "unread badge" count.
