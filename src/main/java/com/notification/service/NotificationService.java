@@ -178,7 +178,7 @@ public class NotificationService {
             content = request.getContent();
         }
         
-        // Step 4: Create notification record
+        // Step 4: Create notification record in the DB
         Notification notification = Notification.builder()
             .user(user)
             .channel(request.getChannel())
