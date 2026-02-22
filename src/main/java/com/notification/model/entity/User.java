@@ -22,6 +22,7 @@ import lombok.NoArgsConstructor;
 
 // JSON Annotations (for serialization)
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.notification.util.UuidGenerator;
 
 // Java utilities
 import java.time.OffsetDateTime;
@@ -69,16 +70,14 @@ public class User {
      * 
      * @Id - Marks this as the primary key
      * 
-     * @GeneratedValue - Tells JPA how to generate the ID
-     *   GenerationType.AUTO - Let the database/JPA decide
-     *   For PostgreSQL with UUID, this uses uuid_generate_v4()
+    * ID is generated in @PrePersist using application-side UUIDv7.
+    * This keeps IDs time-ordered and avoids random-index write patterns.
      * 
      * @Column - Specifies column details
      *   updatable = false - ID should never change after creation
      *   nullable = false - ID cannot be null
      */
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
     
@@ -185,6 +184,9 @@ public class User {
      */
     @PrePersist
     protected void onCreate() {
+        if (this.id == null) {
+            this.id = UuidGenerator.newV7();
+        }
         this.createdAt = OffsetDateTime.now();
         this.updatedAt = OffsetDateTime.now();
     }

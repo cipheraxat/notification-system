@@ -558,7 +558,7 @@ return handler.send(notification);
 #### Users Table
 ```sql
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY,
     email VARCHAR(255) UNIQUE,
     phone VARCHAR(20),
     device_token VARCHAR(500),
@@ -570,7 +570,7 @@ CREATE TABLE users (
 #### User Preferences Table
 ```sql
 CREATE TABLE user_preferences (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel VARCHAR(20) NOT NULL,
     enabled BOOLEAN DEFAULT true,
@@ -585,7 +585,7 @@ CREATE TABLE user_preferences (
 #### Notification Templates Table
 ```sql
 CREATE TABLE notification_templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     channel VARCHAR(20) NOT NULL,
     subject_template VARCHAR(500),
@@ -599,7 +599,7 @@ CREATE TABLE notification_templates (
 #### Notifications Table (Main Table)
 ```sql
 CREATE TABLE notifications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     template_id UUID REFERENCES notification_templates(id),
     channel VARCHAR(20) NOT NULL,
@@ -620,8 +620,11 @@ CREATE TABLE notifications (
 
 ### Design Decisions & Intuition
 
+**Current implementation note:** IDs are generated in application code using **UUIDv7** in `@PrePersist` (time-ordered), not by database defaults.
+
 #### Why UUID Primary Keys?
 - **Globally Unique**: No collisions across distributed systems
+- **Time-Ordered (UUIDv7)**: Better index locality and reduced page splits vs random UUIDv4
 - **No Sequence Gaps**: Don't reveal how many records exist (security)
 - **Client Generation**: Can generate IDs without database round-trip
 - **Microservices Ready**: Perfect for distributed architectures
@@ -720,12 +723,13 @@ CREATE INDEX idx_notifications_channel ON notifications(channel);
 - **Read Replicas**: Separate read traffic from writes
 - **Partitioning**: Partition notifications table by month/year
 - **Archiving**: Move old notifications to cold storage
+- **UUIDv7 IDs**: Time-ordered inserts improve B-tree write behavior compared to UUIDv4
 
 ### Interview Questions: Database Design
 
 | **Question** | **Answer** |
 |--------------|------------|
-| **Why UUIDs?** | Global uniqueness, no sequence gaps, client generation |
+| **Why UUIDv7?** | Global uniqueness + time ordering for better write locality and index performance |
 | **Why separate preferences?** | User control, compliance, different settings per channel |
 | **Why templates?** | Consistency, maintainability, localization support |
 | **Why track everything?** | Audit trail, analytics, debugging, compliance |
@@ -1462,15 +1466,18 @@ However, for the current scope, the indexes I have are sufficient for millions o
 **Q11: Why UUIDs instead of auto-increment IDs?**
 
 **Answer:**
-"Three reasons:
+"I use **UUIDv7** (time-ordered UUIDs) instead of auto-increment IDs.
+
+Core reasons:
 
 1. **Globally unique:** No collisions across distributed systems or merging databases
 2. **Generate client-side:** Don't need a database round-trip to get an ID
-3. **Security:** Doesn't reveal how many records exist (ID enumeration attack prevention)
+3. **Write performance:** UUIDv7 is time-ordered, so inserts are much more index-friendly than random UUIDv4
+4. **Security:** Doesn't reveal how many records exist (ID enumeration attack prevention)
 
 Trade-offs I accept:
 - Larger (16 bytes vs 4 bytes for int)
-- Slightly slower index performance
+- Still larger than BIGINT, but better locality than UUIDv4
 - Not human-readable
 
 For this use case, the benefits outweigh the costs."

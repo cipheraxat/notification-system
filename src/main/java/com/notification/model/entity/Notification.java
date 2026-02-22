@@ -15,6 +15,7 @@ package com.notification.model.entity;
 import com.notification.model.enums.ChannelType;
 import com.notification.model.enums.NotificationStatus;
 import com.notification.model.enums.Priority;
+import com.notification.util.UuidGenerator;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -64,7 +65,6 @@ import java.util.UUID;
 public class Notification {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
     
@@ -209,6 +209,9 @@ public class Notification {
     
     @PrePersist
     protected void onCreate() {
+        if (this.id == null) {
+            this.id = UuidGenerator.newV7();
+        }
         this.createdAt = OffsetDateTime.now();
     }
     
