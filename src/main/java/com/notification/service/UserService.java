@@ -82,12 +82,17 @@ public class UserService {
     }
 
     /**
-     * Find user by ID (not cached since ID lookups are typically for known users).
+     * Find user by ID with caching.
+     *
+     * @Cacheable enables Redis caching with key "users::id:{id}"
+     * First request hits database and caches result.
+     * Subsequent requests serve from Redis cache.
      *
      * @param id User's UUID
      * @return User entity if found
      * @throws ResourceNotFoundException if user not found
      */
+    @Cacheable(value = "users", key = "'id:' + #id")
     public User findById(UUID id) {
         logger.debug("Looking up user by ID: {}", id);
 
@@ -145,5 +150,44 @@ public class UserService {
     @CacheEvict(value = "users", key = "'deviceTokens'")
     public void evictDeviceTokensCache() {
         logger.debug("Evicting device tokens cache");
+    }
+
+    /**
+     * Get all users.
+     *
+     * @return List of all users
+     */
+    public List<User> findAllUsers() {
+        logger.debug("Getting all users");
+        return userRepository.findAll();
+    }
+
+    /**
+     * Create a user if not exists, or return existing user.
+     *
+     * @param email User's email
+     * @param phone User's phone (optional)
+     * @param deviceToken Device token for push notifications (optional)
+     * @return The user entity
+     */
+    @Transactional
+    public User createUserIfNotExists(String email, String phone, String deviceToken) {
+        logger.debug("Creating user if not exists: {}", email);
+
+        Optional<User> existingUser = userRepository.findByEmail(email);
+        if (existingUser.isPresent()) {
+            logger.debug("User already exists with email: {}", email);
+            return existingUser.get();
+        }
+
+        User newUser = User.builder()
+            .email(email)
+            .phone(phone)
+            .deviceToken(deviceToken)
+            .build();
+
+        User savedUser = userRepository.save(newUser);
+        logger.info("Created new user with email: {}", email);
+        return savedUser;
     }
 }

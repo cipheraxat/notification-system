@@ -52,6 +52,9 @@ class NotificationServiceTest {
     private UserRepository userRepository;
     
     @Mock
+    private UserService userService;
+    
+    @Mock
     private TemplateService templateService;
     
     @Mock
@@ -98,8 +101,8 @@ class NotificationServiceTest {
             .content("Test Content")
             .build();
         
-        // Mock repository to return our test user
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
+        // Mock userService to return our test user (cached lookup)
+        when(userService.findById(testUserId)).thenReturn(testUser);
         
         // Mock rate limiter to allow the notification
         when(rateLimiterService.checkAndIncrement(any(), any())).thenReturn(true);
@@ -125,7 +128,7 @@ class NotificationServiceTest {
         assertEquals(NotificationStatus.PENDING, response.getStatus());
         
         // Verify interactions with mocks
-        verify(userRepository).findById(testUserId);
+        verify(userService).findById(testUserId);
         verify(rateLimiterService).checkAndIncrement(testUserId, ChannelType.EMAIL);
         verify(notificationRepository).save(any(Notification.class));
     }
@@ -140,8 +143,9 @@ class NotificationServiceTest {
             .content("Test Content")
             .build();
         
-        // Mock repository to return empty (user not found)
-        when(userRepository.findById(testUserId)).thenReturn(Optional.empty());
+        // Mock user service to throw (user not found)
+        when(userService.findById(testUserId)).thenThrow(
+            new ResourceNotFoundException("User not found with id: " + testUserId));
         
         // Act & Assert
         ResourceNotFoundException exception = assertThrows(
@@ -165,7 +169,7 @@ class NotificationServiceTest {
             // No content or template
             .build();
         
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
+        when(userService.findById(testUserId)).thenReturn(testUser);
         when(rateLimiterService.checkAndIncrement(any(), any())).thenReturn(true);
         
         // Act & Assert
@@ -218,7 +222,7 @@ class NotificationServiceTest {
             .build();
         
         // Mock repository and services
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
+        when(userService.findById(testUserId)).thenReturn(testUser);
         when(deduplicationService.isDuplicate(eventId)).thenReturn(true);
         
         // Act

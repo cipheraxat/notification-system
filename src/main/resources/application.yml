@@ -15,6 +15,15 @@
 server:
   port: 8080                    # The port our API will listen on
   
+  # Tomcat tuning for 10k req/sec
+  tomcat:
+    threads:
+      max: 400                  # Max worker threads (default 200)
+      min-spare: 50             # Keep 50 threads warm
+    max-connections: 10000      # Max concurrent connections
+    accept-count: 200           # Queue length when all threads busy
+    connection-timeout: 5000    # 5s connection timeout (fail fast)
+  
   # Error handling configuration
   error:
     include-message: always     # Include error messages in responses
@@ -37,12 +46,15 @@ spring:
     password: postgres
     
     # HikariCP is the connection pool (manages database connections)
+    # Formula: pool-size ≈ (core_count * 2) + spinning_disks
+    # For 10k req/sec: each request ≈ 10ms DB time → need ~100 active conns
     hikari:
       pool-name: NotificationHikariPool
-      maximum-pool-size: 10     # Max connections to database
-      minimum-idle: 5           # Keep at least 5 connections ready
+      maximum-pool-size: 50     # Supports ~5,000-10,000 req/sec at 5-10ms per query
+      minimum-idle: 25          # Keep 25 connections warm
       idle-timeout: 30000       # Close idle connections after 30 seconds
-      connection-timeout: 20000 # Wait max 20 seconds for a connection
+      connection-timeout: 5000  # Fail fast (5s) instead of waiting 20s
+      leak-detection-threshold: 10000  # Warn if connection held > 10s
   
   # JPA / Hibernate configuration
   jpa:
@@ -50,22 +62,27 @@ spring:
     hibernate:
       ddl-auto: none
     
-    # Show SQL queries in logs (helpful for debugging)
-    show-sql: true
+    # Show SQL queries in logs (set to true for debugging)
+    show-sql: false
     
     properties:
       hibernate:
         # Format SQL nicely in logs
-        format_sql: true
+        format_sql: false
         
         # PostgreSQL-specific dialect
         dialect: org.hibernate.dialect.PostgreSQLDialect
         
         # Batch operations for better performance
         jdbc:
-          batch_size: 25
+          batch_size: 50
+          fetch_size: 100
         order_inserts: true
         order_updates: true
+        
+        # Connection-level statement caching
+        connection:
+          provider_disables_autocommit: true
   
   # ==================== Flyway (Database Migrations) ====================
   #
@@ -96,15 +113,26 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       
-      # Wait for broker to acknowledge receipt
-      acks: all                  # Wait for all replicas (most reliable)
+      # Wait for leader acknowledgment (tradeoff: slightly less durable, 5x faster)
+      acks: 1                    # Wait for leader only (acks=all adds ~5ms per send)
       
       # Retry settings for failed sends
       retries: 3
       
+      # Batching: accumulate messages before sending to maximize throughput
+      batch-size: 65536          # 64KB batch size (default 16KB)
+      buffer-memory: 67108864    # 64MB total buffer memory
+      
       properties:
         # If broker doesn't respond, retry after 1 second
         retry.backoff.ms: 1000
+        
+        # Linger: wait up to 5ms to fill a batch before sending
+        # Tradeoff: adds 0-5ms latency but dramatically increases throughput
+        linger.ms: 5
+        
+        # Compress messages to reduce network I/O
+        compression.type: lz4
         
         # Enable idempotence to prevent duplicate messages
         enable.idempotence: true
@@ -130,8 +158,8 @@ spring:
       # Manual commit = we control when messages are marked as processed
       ack-mode: manual
       
-      # Only one thread per listener (simple for now)
-      concurrency: 1
+      # Match concurrency to total partition count across topics
+      concurrency: 10
 
 # ==================== Logging Configuration ====================
 #
@@ -141,16 +169,16 @@ spring:
 #
 logging:
   level:
-    # Our application logs
-    com.notification: DEBUG
+    # Our application logs (WARN in prod to avoid log I/O bottleneck at 10k req/s)
+    com.notification: WARN
     
-    # Show SQL parameter values (helpful for debugging)
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+    # Hibernate SQL logs (set to DEBUG/TRACE to enable)
+    org.hibernate.SQL: OFF
+    org.hibernate.orm.jdbc.bind: OFF
     
     # Kafka logs (set to WARN to reduce noise)
     org.apache.kafka: WARN
-    org.springframework.kafka: INFO
+    org.springframework.kafka: WARN
   
   # Log format pattern
   pattern:
@@ -167,10 +195,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics   # Which endpoints to expose
+        include: health,info,metrics,prometheus   # Which endpoints to expose
   endpoint:
     health:
       show-details: always              # Show detailed health info
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 # ==================== OpenAPI / Swagger Configuration ====================
 #

@@ -168,8 +168,8 @@ public class NotificationConsumer {
             // Parse the notification ID
             UUID notificationId = UUID.fromString(notificationIdStr);
             
-            // Fetch the notification from database
-            Optional<Notification> optNotification = notificationRepository.findById(notificationId);
+            // Fetch the notification from database with user eagerly loaded
+            Optional<Notification> optNotification = notificationRepository.findByIdWithUser(notificationId);
             
             if (optNotification.isEmpty()) {
                 log.warn("Notification not found: {}. Might have been deleted.", notificationId);

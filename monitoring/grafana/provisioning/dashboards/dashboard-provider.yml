@@ -1,0 +1,21 @@
+# Grafana provisioning schema version.
+apiVersion: 1
+
+# Dashboard provider config: load dashboard JSON files from disk at startup.
+providers:
+  - name: 'Notification Dashboards'
+    # Default organization in standalone Grafana container.
+    orgId: 1
+    # Empty means dashboards appear in root folder.
+    folder: ''
+    type: file
+    # If true, Grafana would keep dashboards even when files are removed.
+    # false means file system remains source of truth.
+    disableDeletion: false
+    # Allows dashboard edits in UI (changes are in Grafana DB, not source file).
+    editable: true
+    # Re-scan dashboard files every 15 seconds.
+    updateIntervalSeconds: 15
+    options:
+      # Path inside Grafana container mounted from monitoring/grafana/dashboards
+      path: /var/lib/grafana/dashboards

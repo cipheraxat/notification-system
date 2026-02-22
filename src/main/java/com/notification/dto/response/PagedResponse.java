@@ -21,6 +21,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.domain.Page;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -157,6 +158,28 @@ public class PagedResponse<T> {
             .last(page.isLast())
             .hasNext(page.hasNext())
             .hasPrevious(page.hasPrevious())
+            .build();
+    }
+    
+    /**
+     * Create an empty PagedResponse.
+     * 
+     * This is useful when there are no results to return,
+     * or when certain filters are not yet implemented.
+     * 
+     * @return An empty PagedResponse with no content
+     */
+    public static <T> PagedResponse<T> empty() {
+        return PagedResponse.<T>builder()
+            .content(Collections.emptyList())
+            .pageNumber(0)
+            .pageSize(0)
+            .totalElements(0)
+            .totalPages(0)
+            .first(true)
+            .last(true)
+            .hasNext(false)
+            .hasPrevious(false)
             .build();
     }
 }

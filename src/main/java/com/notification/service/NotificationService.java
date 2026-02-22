@@ -58,6 +58,7 @@ public class NotificationService {
     
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final UserService userService;
     private final TemplateService templateService;
     private final RateLimiterService rateLimiterService;
     private final DeduplicationService deduplicationService;
@@ -89,12 +90,14 @@ public class NotificationService {
     public NotificationService(
             NotificationRepository notificationRepository,
             UserRepository userRepository,
+            UserService userService,
             TemplateService templateService,
             RateLimiterService rateLimiterService,
             DeduplicationService deduplicationService,
             KafkaTemplate<String, String> kafkaTemplate) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
+        this.userService = userService;
         this.templateService = templateService;
         this.rateLimiterService = rateLimiterService;
         this.deduplicationService = deduplicationService;
@@ -120,16 +123,15 @@ public class NotificationService {
      */
     @Transactional
     public NotificationResponse sendNotification(SendNotificationRequest request) {
-        log.info("Processing notification request for user: {}", request.getUserId());
+        log.debug("Processing notification request for user: {}", request.getUserId());
         
-        // Step 1: Validate user exists
-        User user = userRepository.findById(request.getUserId())
-            .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getUserId()));
+        // Step 1: Validate user exists (cached via Redis - avoids DB hit per request)
+        User user = userService.findById(request.getUserId());
         
         // Step 2: Check for duplicates (if eventId provided)
         if (request.getEventId() != null && !request.getEventId().isBlank()) {
             if (deduplicationService.isDuplicate(request.getEventId())) {
-                log.info("Duplicate notification event detected: {}. Discarding.", request.getEventId());
+                log.debug("Duplicate notification event detected: {}. Discarding.", request.getEventId());
                 // Return a response indicating the notification was not sent due to deduplication
                 return NotificationResponse.builder()
                     .id(null) // No notification created
@@ -190,7 +192,7 @@ public class NotificationService {
         
         notification = notificationRepository.save(notification);
         
-        log.info("Created notification {} for user {}", notification.getId(), user.getId());
+        log.debug("Created notification {} for user {}", notification.getId(), user.getId());
         
         // Step 5: Send to Kafka for async processing
         sendToKafka(notification);
@@ -233,12 +235,11 @@ public class NotificationService {
             content = request.getContent();
         }
         
-        // Process each user
+        // Process each user (use cached user lookups)
         for (UUID userId : request.getUserIds()) {
             try {
-                // Find user
-                User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+                // Find user (cached via Redis)
+                User user = userService.findById(userId);
                 
                 // Check rate limit (skip if exceeded, don't fail whole batch)
                 if (rateLimiterService.isRateLimited(userId, request.getChannel())) {
@@ -422,6 +423,9 @@ public class NotificationService {
             String value = notification.getId().toString();
             String topic = getTopicForChannel(notification.getChannel());
             
+            // Fire-and-forget: don't block on the future.
+            // The Kafka producer batches internally (linger.ms + batch-size)
+            // and retries automatically on transient failures.
             kafkaTemplate.send(topic, key, value);
             
             log.debug("Sent notification {} to Kafka topic {}", 

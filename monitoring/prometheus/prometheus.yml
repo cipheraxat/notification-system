@@ -1,0 +1,40 @@
+# -----------------------------------------------------
+# Prometheus global settings
+# -----------------------------------------------------
+# scrape_interval: how often Prometheus pulls metrics
+# evaluation_interval: how often alert/recording rules are evaluated
+global:
+  scrape_interval: 10s
+  evaluation_interval: 15s
+
+# -----------------------------------------------------
+# scrape_configs: list of metric targets to scrape
+# -----------------------------------------------------
+scrape_configs:
+  # Spring Boot app metrics (Micrometer + Actuator endpoint)
+  # NOTE: host.docker.internal works on macOS/Windows Docker Desktop.
+  # On Linux, replace with host IP or run app in Docker network.
+  - job_name: 'notification-app'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+
+  # PostgreSQL exporter metrics
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis exporter metrics
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # Kafka exporter metrics
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']

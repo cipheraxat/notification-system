@@ -1,0 +1,17 @@
+# Grafana provisioning schema version.
+apiVersion: 1
+
+# Datasource provisioning on Grafana startup.
+# This creates a Prometheus datasource automatically,
+# so no manual setup is needed in the UI.
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # "proxy" means Grafana backend calls Prometheus directly.
+    access: proxy
+    # Internal Docker network URL (service name from docker-compose).
+    url: http://prometheus:9090
+    # Make this the default datasource for imported dashboards.
+    isDefault: true
+    # Keep editable so you can tweak settings in UI if needed.
+    editable: true

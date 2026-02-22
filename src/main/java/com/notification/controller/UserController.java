@@ -8,6 +8,7 @@ package com.notification.controller;
 // Provides cached user lookups for testing purposes.
 //
 
+import com.notification.dto.request.CreateUserRequest;
 import com.notification.dto.response.ApiResponse;
 import com.notification.model.entity.User;
 import com.notification.service.UserService;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.List;
 
 /**
@@ -68,5 +70,25 @@ public class UserController {
     public ResponseEntity<ApiResponse<List<User>>> getPushEligibleUsers() {
         List<User> users = userService.findUsersWithDeviceTokens();
         return ResponseEntity.ok(ApiResponse.success("Push-eligible users retrieved", users));
+    }
+
+    /**
+     * Get all users.
+     */
+    @GetMapping
+    @Operation(summary = "Get all users", description = "Retrieve all users in the system")
+    public ResponseEntity<ApiResponse<List<User>>> getAllUsers() {
+        List<User> users = userService.findAllUsers();
+        return ResponseEntity.ok(ApiResponse.success("All users retrieved", users));
+    }
+
+    /**
+     * Create a user if not exists.
+     */
+    @PostMapping
+    @Operation(summary = "Create user if not exists", description = "Create a new user or return existing user with the same email")
+    public ResponseEntity<ApiResponse<User>> createUserIfNotExists(@Valid @RequestBody CreateUserRequest request) {
+        User user = userService.createUserIfNotExists(request.getEmail(), request.getPhone(), request.getDeviceToken());
+        return ResponseEntity.ok(ApiResponse.success("User created or retrieved", user));
     }
 }

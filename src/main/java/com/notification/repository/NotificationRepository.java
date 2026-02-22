@@ -21,6 +21,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -206,4 +207,11 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
         @Param("channel") ChannelType channel,
         @Param("since") OffsetDateTime since
     );
+
+    /**
+     * Find notification by ID with user eagerly loaded.
+     * Used for processing notifications where we need to access user properties.
+     */
+    @Query("SELECT n FROM Notification n JOIN FETCH n.user WHERE n.id = :id")
+    Optional<Notification> findByIdWithUser(@Param("id") UUID id);
 }

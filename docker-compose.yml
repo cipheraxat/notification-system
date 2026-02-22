@@ -23,7 +23,7 @@ services:
   # - Notifications
   # - Templates
   # - User Preferences
-  #
+
   postgres:
     image: postgres:15                    # Official PostgreSQL image, version 15
     container_name: notification-postgres # Name for easy identification
@@ -203,6 +203,94 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:29092,kafka-2:29093,kafka-3:29094
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
+  # ==================== Prometheus ====================
+  #
+  # Metrics collection and time-series storage.
+  # Access at: http://localhost:9090
+  #
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: notification-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    depends_on:
+      - postgres-exporter
+      - redis-exporter
+      - kafka-exporter
+
+  # ==================== Grafana ====================
+  #
+  # Dashboard UI for visualizing metrics and stress spikes.
+  # Access at: http://localhost:3000 (admin/admin)
+  #
+  grafana:
+    image: grafana/grafana:latest
+    container_name: notification-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # ==================== PostgreSQL Exporter ====================
+  #
+  # Exposes PostgreSQL metrics to Prometheus.
+  #
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: notification-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres:postgres@postgres:5432/notification_db?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+
+  # ==================== Redis Exporter ====================
+  #
+  # Exposes Redis metrics to Prometheus.
+  #
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: notification-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+
+  # ==================== Kafka Exporter ====================
+  #
+  # Exposes Kafka cluster/topic/consumer metrics to Prometheus.
+  #
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: notification-kafka-exporter
+    command:
+      - "--kafka.server=kafka-1:29092"
+      - "--kafka.server=kafka-2:29093"
+      - "--kafka.server=kafka-3:29094"
+    ports:
+      - "9308:9308"
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+
 # ==================== Volumes ====================
 #
 # Volumes persist data outside the container.
@@ -211,3 +299,4 @@ services:
 volumes:
   postgres_data:    # PostgreSQL data files
   redis_data:       # Redis persistence files
+  grafana_data:     # Grafana data (dashboards, preferences)

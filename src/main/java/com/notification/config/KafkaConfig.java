@@ -75,7 +75,7 @@ public class KafkaConfig {
     @Bean
     public NewTopic emailNotificationsTopic() {
         return TopicBuilder.name(emailTopic)
-            .partitions(3)      // 3 partitions for parallelism
+            .partitions(8)      // 8 partitions for high-volume email
             .replicas(3)        // 3 replicas for fault tolerance
             .build();
     }
@@ -83,7 +83,7 @@ public class KafkaConfig {
     @Bean
     public NewTopic smsNotificationsTopic() {
         return TopicBuilder.name(smsTopic)
-            .partitions(2)      // Fewer partitions (SMS is rate-limited by providers)
+            .partitions(4)      // Fewer partitions (SMS is rate-limited by providers)
             .replicas(3)
             .build();
     }
@@ -91,7 +91,7 @@ public class KafkaConfig {
     @Bean
     public NewTopic pushNotificationsTopic() {
         return TopicBuilder.name(pushTopic)
-            .partitions(4)      // More partitions (push needs to be fast)
+            .partitions(8)      // 8 partitions (push needs to be fast)
             .replicas(3)
             .build();
     }
@@ -99,7 +99,7 @@ public class KafkaConfig {
     @Bean
     public NewTopic inAppNotificationsTopic() {
         return TopicBuilder.name(inAppTopic)
-            .partitions(3)
+            .partitions(6)
             .replicas(3)
             .build();
     }
@@ -139,8 +139,12 @@ public class KafkaConfig {
         // Start from earliest message if no offset exists
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         
-        // Maximum records to fetch in one poll
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100);
+        // Maximum records to fetch in one poll (higher = more throughput per poll cycle)
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 500);
+        
+        // Allow larger fetch sizes for throughput
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1024);   // Wait for 1KB before returning
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 100);  // Or 100ms, whichever comes first
         
         return new DefaultKafkaConsumerFactory<>(props);
     }
@@ -163,8 +167,8 @@ public class KafkaConfig {
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         
         // Number of concurrent consumers (threads)
-        // Each thread processes messages independently
-        factory.setConcurrency(3);
+        // Should match total partitions across topics for full parallelism
+        factory.setConcurrency(10);
         
         return factory;
     }
